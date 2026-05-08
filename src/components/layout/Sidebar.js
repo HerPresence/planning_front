@@ -37,7 +37,10 @@ function Sidebar({ activePage, setActivePage }) {
           🔗 Відповідність
         </div>
 
-        <div className="menu-item" onClick={() => setActivePage("departments")}>
+        <div
+          className={activePage === "departments" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("departments")}
+        >
           🏢 Підрозділи
         </div>
 

@@ -6,6 +6,7 @@ import PageHeader from "./components/layout/PageHeader";
 
 import ArticlesPage from "./pages/ArticlesPage";
 import ImportSourcesPage from "./pages/ImportSourcesPage";
+import DepartmentsPage from "./pages/DepartmentsPage";
 
 function App() {
   const [activePage, setActivePage] = useState("articles");
@@ -17,6 +18,9 @@ function App() {
 
       case "importSources":
         return <ImportSourcesPage setActivePage={setActivePage} />;
+
+      case "departments":
+        return <DepartmentsPage setActivePage={setActivePage} />;
 
       default:
         return (
@@ -35,6 +39,9 @@ function App() {
       case "importSources":
         return "Відповідність полів імпорту";
 
+      case "departments":
+        return "Підрозділи";
+
       default:
         return "Система планування";
     }
@@ -47,6 +54,9 @@ function App() {
 
       case "importSources":
         return "Мапінг колонок Google Sheets / Excel";
+
+      case "departments":
+        return "Керування довідником підрозділів";
 
       default:
         return "";
