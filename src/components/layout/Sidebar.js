@@ -58,8 +58,11 @@ function Sidebar({ activePage, setActivePage }) {
           💰 БДДС
         </div>
 
-        <div className="menu-item" onClick={() => setActivePage("pnl")}>
-          📈 PnL
+        <div
+          className={activePage === "pnlData" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("pnlData")}
+        >
+          📊 План / Факт PnL
         </div>
 
         <div className="menu-item" onClick={() => setActivePage("budgets")}>

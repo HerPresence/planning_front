@@ -7,6 +7,7 @@ import PageHeader from "./components/layout/PageHeader";
 import ArticlesPage from "./pages/ArticlesPage";
 import ImportSourcesPage from "./pages/ImportSourcesPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
+import PnlDataPage from "./pages/PnlDataPage";
 
 function App() {
   const [activePage, setActivePage] = useState("articles");
@@ -21,6 +22,9 @@ function App() {
 
       case "departments":
         return <DepartmentsPage setActivePage={setActivePage} />;
+
+      case "pnlData":
+        return <PnlDataPage setActivePage={setActivePage} />;
 
       default:
         return (
@@ -42,6 +46,9 @@ function App() {
       case "departments":
         return "Підрозділи";
 
+      case "pnlData":
+        return "План / Факт PnL";
+
       default:
         return "Система планування";
     }
@@ -57,6 +64,9 @@ function App() {
 
       case "departments":
         return "Керування довідником підрозділів";
+
+      case "pnlData":
+        return "Керування плановими та фактичними даними PnL";
 
       default:
         return "";

@@ -33,13 +33,34 @@ function ArticlesPage({ setActivePage }) {
     loadArticles();
   }, []);
 
+  const [loadError, setLoadError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
   const loadArticles = async () => {
+    setLoadError(null);
+    setIsLoading(true);
+
     try {
       const data = await getArticles();
       setArticles(data);
+      setIsLoading(false);
+      return;
     } catch (err) {
-      console.error("Помилка завантаження статей:", err);
-      alert("Помилка завантаження статей");
+      console.warn("Перший запит статей не вдався, пробуємо ще раз:", err);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    try {
+      const data = await getArticles();
+      setArticles(data);
+      setIsLoading(false);
+      return;
+    } catch (err) {
+      console.error("Повторне завантаження статей не вдалося:", err);
+      setLoadError("Не вдалося завантажити статті. Спробуйте оновити сторінку пізніше.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -162,6 +183,8 @@ function ArticlesPage({ setActivePage }) {
               + Додати статтю
             </Button>
           </div>
+
+          {loadError && <div className="error-message">{loadError}</div>}
         </div>
 
         <table className="data-table">
