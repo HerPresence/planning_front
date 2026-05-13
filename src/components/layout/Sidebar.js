@@ -44,6 +44,48 @@ function Sidebar({ activePage, setActivePage }) {
           🏢 Підрозділи
         </div>
 
+        <div
+          className={activePage === "holdings" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("holdings")}
+        >
+          🏢 Холдинги
+        </div>
+
+        <div
+          className={activePage === "organizations" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("organizations")}
+        >
+          🏬 Організації
+        </div>
+
+        <div
+          className={activePage === "regions" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("regions")}
+        >
+          🌍 Регіони
+        </div>
+
+        <div
+          className={activePage === "branches" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("branches")}
+        >
+          🏪 Філії
+        </div>
+
+        <div
+          className={activePage === "sources" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("sources")}
+        >
+          🧾 Джерела
+        </div>
+
+        <div
+          className={activePage === "pnlStructure" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("pnlStructure")}
+        >
+          🧩 Структура PnL
+        </div>
+
         <div className="menu-item" onClick={() => setActivePage("clients")}>
           👥 Клієнти
         </div>
@@ -63,6 +105,13 @@ function Sidebar({ activePage, setActivePage }) {
           onClick={() => setActivePage("pnlData")}
         >
           📊 План / Факт PnL
+        </div>
+
+        <div
+          className={activePage === "pnlImport" ? "menu-item active" : "menu-item"}
+          onClick={() => setActivePage("pnlImport")}
+        >
+          📥 Імпорт PnL
         </div>
 
         <div className="menu-item" onClick={() => setActivePage("budgets")}>

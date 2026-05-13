@@ -12,7 +12,6 @@ export async function getArticles() {
 export async function createArticle(form) {
   const data = new FormData();
 
-  data.append("article_id", form.article_id);
   data.append("article_name", form.article_name);
   data.append("article_type", form.article_type);
   data.append("level1", form.level1);
@@ -26,12 +25,12 @@ export async function createArticle(form) {
 export async function updateArticle(oldArticleId, form) {
   const data = new FormData();
 
-  data.append("article_id", form.article_id);
   data.append("article_name", form.article_name);
   data.append("article_type", form.article_type);
   data.append("level1", form.level1);
   data.append("level2", form.level2);
   data.append("pnl_id", form.pnl_id);
+  data.append("is_active", form.is_active ? "true" : "false");
 
   const res = await axios.put(`${API_URL}/${oldArticleId}`, data);
   return res.data;

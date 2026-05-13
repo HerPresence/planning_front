@@ -178,6 +178,20 @@ body {
   color: #fff;
 }
 
+.btn-success {
+  background: #27ae60;
+  color: #fff;
+}
+
+.btn-success:hover {
+  background: #219a52;
+}
+
+.btn-success:disabled {
+  background: #a0d8b3;
+  cursor: not-allowed;
+}
+
 .search {
   width: 280px;
   padding: 11px 14px;
@@ -228,6 +242,42 @@ body {
 .status.inactive {
   background: #eee;
   color: #777;
+}
+
+.status.total {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status.normal {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.error-message {
+  padding: 12px;
+  background-color: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: #c33;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.success-message {
+  padding: 12px;
+  background-color: #efe;
+  border: 1px solid #cfc;
+  border-radius: 4px;
+  color: #363;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.loading {
+  padding: 20px;
+  text-align: center;
+  color: #666;
 }
 
 .icon-btn {

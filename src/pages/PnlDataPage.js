@@ -14,11 +14,20 @@ import {
   deleteFactPnL,
 } from "../api/pnlDataApi";
 
+import {
+  getReferenceDepartments,
+  getReferenceArticles,
+  getReferenceSources,
+} from "../api/referenceApi";
+
 function PnlDataPage({ setActivePage }) {
   const [activeTab, setActiveTab] = useState("plan");
 
   const [planData, setPlanData] = useState([]);
   const [factData, setFactData] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [articles, setArticles] = useState([]);
+  const [sources, setSources] = useState([]);
 
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -62,18 +71,27 @@ function PnlDataPage({ setActivePage }) {
   const [form, setForm] = useState(emptyPlanForm);
 
   useEffect(() => {
-    loadData();
+    loadAllData();
   }, []);
 
-  const loadData = async () => {
+  const loadAllData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [planRes, factRes] = await Promise.all([getPlanPnL(), getFactPnL()]);
+      const [planRes, factRes, deptRes, artRes, srcRes] = await Promise.all([
+        getPlanPnL(),
+        getFactPnL(),
+        getReferenceDepartments(),
+        getReferenceArticles(),
+        getReferenceSources(),
+      ]);
       setPlanData(planRes);
       setFactData(factRes);
+      setDepartments(deptRes);
+      setArticles(artRes);
+      setSources(srcRes);
     } catch (err) {
-      console.error("Помилка завантаження PnL даних:", err);
+      console.error("Помилка завантаження даних:", err);
       setError("Помилка завантаження даних");
     } finally {
       setLoading(false);
@@ -100,6 +118,37 @@ function PnlDataPage({ setActivePage }) {
     });
   };
 
+  const handleDepartmentChange = (e) => {
+    const depId = e.target.value;
+    const selected = departments.find((d) => d.department_id === depId);
+
+    if (selected) {
+      setForm({
+        ...form,
+        department_id: selected.department_id,
+        department_name: selected.department_name,
+        holding_name: selected.holding_name,
+        organization_name: selected.organization_name,
+        region_name: selected.region_name,
+        branch_name: selected.branch_name,
+      });
+    }
+  };
+
+  const handleArticleChange = (e) => {
+    const artId = e.target.value;
+    const selected = articles.find((a) => a.article_id === artId);
+
+    if (selected) {
+      setForm({
+        ...form,
+        article_id: selected.article_id,
+        article_name: selected.article_name,
+        pnl_id: selected.pnl_id,
+      });
+    }
+  };
+
   const saveItem = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -123,7 +172,7 @@ function PnlDataPage({ setActivePage }) {
       setShowModal(false);
       setEditId(null);
       setForm(activeTab === "plan" ? emptyPlanForm : emptyFactForm);
-      await loadData();
+      await loadAllData();
     } catch (err) {
       console.error("Помилка збереження:", err);
       setError("Помилка збереження даних");
@@ -151,7 +200,7 @@ function PnlDataPage({ setActivePage }) {
       } else {
         await deleteFactPnL(id);
       }
-      await loadData();
+      await loadAllData();
     } catch (err) {
       console.error("Помилка видалення:", err);
       setError(err.response?.data?.detail || "Помилка видалення");
@@ -303,9 +352,8 @@ function PnlDataPage({ setActivePage }) {
           <form onSubmit={saveItem}>
             <div className="form-row">
               <input
-                type="text"
+                type="date"
                 name="period"
-                placeholder="Період *"
                 value={form.period}
                 onChange={handleChange}
                 required
@@ -313,101 +361,77 @@ function PnlDataPage({ setActivePage }) {
             </div>
 
             <div className="form-row">
-              <input
-                type="text"
-                name="holding_name"
-                placeholder="Холдинг"
-                value={form.holding_name}
-                onChange={handleChange}
-              />
-              <input
-                type="text"
-                name="organization_name"
-                placeholder="Організація"
-                value={form.organization_name}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-row">
-              <input
-                type="text"
-                name="region_name"
-                placeholder="Регіон"
-                value={form.region_name}
-                onChange={handleChange}
-              />
-              <input
-                type="text"
-                name="branch_name"
-                placeholder="Філія"
-                value={form.branch_name}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-row">
-              <input
-                type="text"
+              <select
                 name="department_id"
-                placeholder="ID підрозділу"
                 value={form.department_id}
-                onChange={handleChange}
-              />
-              <input
-                type="text"
-                name="department_name"
-                placeholder="Назва підрозділу"
-                value={form.department_name}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div className="form-row">
-              <input
-                type="text"
-                name="article_id"
-                placeholder="ID статті *"
-                value={form.article_id}
-                onChange={handleChange}
+                onChange={handleDepartmentChange}
                 required
-              />
-              <input
-                type="text"
-                name="article_name"
-                placeholder="Назва статті"
-                value={form.article_name}
-                onChange={handleChange}
-              />
+                disabled={loading}
+              >
+                <option value="">Вибрати підрозділ *</option>
+                {departments.map((d) => (
+                  <option key={d.department_id} value={d.department_id}>
+                    {d.department_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-row">
+              <select
+                name="article_id"
+                value={form.article_id}
+                onChange={handleArticleChange}
+                required
+                disabled={loading}
+              >
+                <option value="">Вибрати статтю *</option>
+                {articles.map((a) => (
+                  <option key={a.article_id} value={a.article_id}>
+                    {a.article_name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="form-row">
               <input
-                type="text"
-                name="pnl_id"
-                placeholder="ID PnL"
-                value={form.pnl_id}
+                type="number"
+                name="amount"
+                placeholder="Сума *"
+                value={form.amount}
                 onChange={handleChange}
+                step="0.01"
+                required
               />
             </div>
 
             {activeTab === "plan" && (
               <>
                 <div className="form-row">
-                  <input
-                    type="text"
+                  <select
                     name="scenario"
-                    placeholder="Сценарій"
                     value={form.scenario}
                     onChange={handleChange}
-                  />
-                  <input
-                    type="text"
+                  >
+                    <option value="">Сценарій</option>
+                    <option value="План">План</option>
+                    <option value="Прогноз">Прогноз</option>
+                    <option value="Факт">Факт</option>
+                    <option value="Коригування">Коригування</option>
+                  </select>
+                </div>
+                <div className="form-row">
+                  <select
                     name="version_name"
-                    placeholder="Версія"
                     value={form.version_name}
                     onChange={handleChange}
-                  />
+                  >
+                    <option value="">Версія</option>
+                    <option value="Базова">Базова</option>
+                    <option value="V1">V1</option>
+                    <option value="V2">V2</option>
+                  </select>
                 </div>
                 <div className="form-row">
                   <input
@@ -422,35 +446,27 @@ function PnlDataPage({ setActivePage }) {
             )}
 
             {activeTab === "fact" && (
-              <div className="form-row">
-                <input
-                  type="text"
-                  name="registrar"
-                  placeholder="Реєстратор"
-                  value={form.registrar}
-                  onChange={handleChange}
-                />
-                <input
-                  type="text"
-                  name="source_name"
-                  placeholder="Джерело"
-                  value={form.source_name}
-                  onChange={handleChange}
-                />
-              </div>
+              <>
+                <div className="form-row">
+                  <input
+                    type="text"
+                    name="registrar"
+                    placeholder="Реєстратор"
+                    value={form.registrar}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="form-row">
+                  <input
+                    type="text"
+                    name="source_name"
+                    placeholder="Джерело"
+                    value={form.source_name}
+                    onChange={handleChange}
+                  />
+                </div>
+              </>
             )}
-
-            <div className="form-row">
-              <input
-                type="number"
-                name="amount"
-                placeholder="Сума *"
-                value={form.amount}
-                onChange={handleChange}
-                step="0.01"
-                required
-              />
-            </div>
 
             <div className="modal-actions">
               <Button type="submit" variant="primary" disabled={loading}>
@@ -525,20 +541,33 @@ function PnlDataPage({ setActivePage }) {
           display: flex;
           gap: 10px;
           margin-bottom: 12px;
+          min-width: 0;
         }
 
-        .form-row input {
-          flex: 1;
+        .form-row input,
+        .form-row select {
+          flex: 1 1 0;
+          min-width: 0;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
           padding: 8px 12px;
           border: 1px solid #ddd;
           border-radius: 4px;
           font-size: 14px;
         }
 
-        .form-row input:focus {
+        .form-row input:focus,
+        .form-row select:focus {
           outline: none;
           border-color: #3498db;
           box-shadow: 0 0 4px rgba(52, 152, 219, 0.2);
+        }
+
+        .form-row select:disabled {
+          background-color: #f5f5f5;
+          color: #999;
+          cursor: not-allowed;
         }
 
         .modal-actions {

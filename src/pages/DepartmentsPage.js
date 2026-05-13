@@ -202,15 +202,16 @@ function DepartmentsPage({ setActivePage }) {
         >
           <form onSubmit={saveDepartment}>
             <div className="form-grid">
-              <div className="form-field">
-                <label>ID підрозділу</label>
-                <input
-                  name="department_id"
-                  value={form.department_id}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+              {editDepartmentId && (
+                <div className="form-field">
+                  <label>ID підрозділу</label>
+                  <input
+                    name="department_id"
+                    value={form.department_id}
+                    readOnly
+                  />
+                </div>
+              )}
 
               <div className="form-field">
                 <label>Холдинг</label>
@@ -257,17 +258,19 @@ function DepartmentsPage({ setActivePage }) {
                 />
               </div>
 
-              <div className="form-field checkbox-field">
-                <label>
-                  <input
-                    name="is_active"
-                    type="checkbox"
-                    checked={form.is_active}
-                    onChange={handleChange}
-                  />
-                  Активний
-                </label>
-              </div>
+              {editDepartmentId && (
+                <div className="form-field checkbox-field">
+                  <label>
+                    <input
+                      name="is_active"
+                      type="checkbox"
+                      checked={form.is_active}
+                      onChange={handleChange}
+                    />
+                    Активний
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="modal-actions">

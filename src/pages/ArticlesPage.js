@@ -249,15 +249,16 @@ function ArticlesPage({ setActivePage }) {
         >
           <form onSubmit={saveArticle}>
             <div className="form-grid">
-              <div className="form-field">
-                <label>ID статті</label>
-                <input
-                  name="article_id"
-                  value={form.article_id}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+              {editArticleId && (
+                <div className="form-field">
+                  <label>ID статті</label>
+                  <input
+                    name="article_id"
+                    value={form.article_id}
+                    readOnly
+                  />
+                </div>
+              )}
 
               <div className="form-field">
                 <label>PnL ID</label>
@@ -306,6 +307,20 @@ function ArticlesPage({ setActivePage }) {
                   onChange={handleChange}
                 />
               </div>
+
+              {editArticleId && (
+                <div className="form-field checkbox-field">
+                  <label>
+                    <input
+                      name="is_active"
+                      type="checkbox"
+                      checked={form.is_active}
+                      onChange={handleChange}
+                    />
+                    Активна
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="modal-actions">

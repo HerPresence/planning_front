@@ -11,7 +11,6 @@ export async function getDepartments() {
 export async function createDepartment(form) {
   const data = new FormData();
 
-  data.append("department_id", form.department_id);
   data.append("holding_name", form.holding_name);
   data.append("organization_name", form.organization_name);
   data.append("region_name", form.region_name);
@@ -25,7 +24,6 @@ export async function createDepartment(form) {
 export async function updateDepartment(oldDepartmentId, form) {
   const data = new FormData();
 
-  data.append("department_id", form.department_id);
   data.append("holding_name", form.holding_name);
   data.append("organization_name", form.organization_name);
   data.append("region_name", form.region_name);
