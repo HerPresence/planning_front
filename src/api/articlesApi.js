@@ -12,11 +12,17 @@ export async function getArticles() {
 export async function createArticle(form) {
   const data = new FormData();
 
-  data.append("article_name", form.article_name);
-  data.append("article_type", form.article_type);
-  data.append("level1", form.level1);
-  data.append("level2", form.level2);
-  data.append("pnl_id", form.pnl_id);
+  data.append("article_id",          form.article_id);
+  data.append("article_name",        form.article_name);
+  data.append("article_type",        form.article_type        || "");
+  data.append("level1",              form.level1              || "");
+  data.append("level2",              form.level2              || "");
+  data.append("pnl_id",              Number(form.pnl_id));
+  data.append("uid_expense_article", form.uid_expense_article || "");
+  data.append("expense_element",     form.expense_element     || "");
+  data.append("expense_company",     form.expense_company     || "");
+  data.append("level1_olap",         form.level1_olap         || "");
+  data.append("level2_olap",         form.level2_olap         || "");
 
   const res = await axios.post(API_URL, data);
   return res.data;
@@ -25,12 +31,17 @@ export async function createArticle(form) {
 export async function updateArticle(oldArticleId, form) {
   const data = new FormData();
 
-  data.append("article_name", form.article_name);
-  data.append("article_type", form.article_type);
-  data.append("level1", form.level1);
-  data.append("level2", form.level2);
-  data.append("pnl_id", form.pnl_id);
-  data.append("is_active", form.is_active ? "true" : "false");
+  data.append("article_name",        form.article_name);
+  data.append("article_type",        form.article_type        || "");
+  data.append("level1",              form.level1              || "");
+  data.append("level2",              form.level2              || "");
+  data.append("pnl_id",              form.pnl_id);
+  data.append("is_active",           form.is_active ? "true" : "false");
+  data.append("uid_expense_article", form.uid_expense_article || "");
+  data.append("expense_element",     form.expense_element     || "");
+  data.append("expense_company",     form.expense_company     || "");
+  data.append("level1_olap",         form.level1_olap         || "");
+  data.append("level2_olap",         form.level2_olap         || "");
 
   const res = await axios.put(`${API_URL}/${oldArticleId}`, data);
   return res.data;

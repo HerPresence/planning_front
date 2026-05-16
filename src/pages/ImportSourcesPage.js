@@ -12,17 +12,15 @@ import {
 } from "../api/importSourcesApi";
 
 import {
-  getArticleMappings,
-  createArticleMapping,
-  updateArticleMapping,
-  deleteArticleMapping,
   getDepartmentMappings,
   createDepartmentMapping,
   updateDepartmentMapping,
   deleteDepartmentMapping,
 } from "../api/pnlImportApi";
 
-import { getReferenceArticles, getReferenceDepartments } from "../api/referenceApi";
+import { getReferenceDepartments } from "../api/referenceApi";
+
+import ArticleSourceMappingPage from "./ArticleSourceMappingPage";
 
 const EMPTY_SOURCE = {
   source_name: "",
@@ -34,15 +32,15 @@ const EMPTY_SOURCE = {
   level1_field: "",
   level2_field: "",
   pnl_id_field: "",
-};
-
-const EMPTY_ARTICLE_MAP = {
-  source_id: "",
-  source_article_id: "",
-  source_article_name: "",
-  article_id: "",
-  comment: "",
-  is_active: true,
+  // OLAP / SQL
+  db_server: "",
+  db_port: "",
+  db_database: "",
+  db_cube_model: "",
+  db_login: "",
+  db_password: "",
+  db_query: "",
+  db_refresh_interval: "",
 };
 
 const EMPTY_DEPT_MAP = {
@@ -63,17 +61,15 @@ function formatApiError(err, fallback) {
   return JSON.stringify(detail);
 }
 
-function ImportSourcesPage() {
-  const [activeTab, setActiveTab] = useState("sources");
+function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourceId = "" }) {
+  const [activeTab, setActiveTab] = useState(initialTab || "sources");
 
   // shared data
   const [sources, setSources] = useState([]);
-  const [articles, setArticles] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [selectedSourceId, setSelectedSourceId] = useState("");
 
   // tab-specific data
-  const [articleMappings, setArticleMappings] = useState([]);
   const [deptMappings, setDeptMappings] = useState([]);
 
   // UI state
@@ -85,7 +81,6 @@ function ImportSourcesPage() {
 
   // forms
   const [sourceForm, setSourceForm] = useState(EMPTY_SOURCE);
-  const [articleMapForm, setArticleMapForm] = useState(EMPTY_ARTICLE_MAP);
   const [deptMapForm, setDeptMapForm] = useState(EMPTY_DEPT_MAP);
 
   useEffect(() => {
@@ -93,7 +88,6 @@ function ImportSourcesPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === "articles") loadArticleMappings();
     if (activeTab === "departments") loadDeptMappings();
   }, [activeTab, selectedSourceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -102,29 +96,14 @@ function ImportSourcesPage() {
     setLoading(true);
     setError(null);
     try {
-      const [src, art, dept] = await Promise.all([
+      const [src, dept] = await Promise.all([
         getImportSources(),
-        getReferenceArticles(),
         getReferenceDepartments(),
       ]);
       setSources(src);
-      setArticles(art);
       setDepartments(dept);
     } catch {
       setError("Помилка завантаження даних");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadArticleMappings = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getArticleMappings(selectedSourceId || null);
-      setArticleMappings(data);
-    } catch {
-      setError("Помилка завантаження відповідностей статей");
     } finally {
       setLoading(false);
     }
@@ -165,6 +144,14 @@ function ImportSourcesPage() {
       level1_field: s.level1_field || "",
       level2_field: s.level2_field || "",
       pnl_id_field: s.pnl_id_field || "",
+      db_server: s.db_server || "",
+      db_port: s.db_port || "",
+      db_database: s.db_database || "",
+      db_cube_model: s.db_cube_model || "",
+      db_login: s.db_login || "",
+      db_password: s.db_password || "",
+      db_query: s.db_query || "",
+      db_refresh_interval: s.db_refresh_interval || "",
     });
     setShowModal(true);
   };
@@ -196,69 +183,6 @@ function ImportSourcesPage() {
       await loadBase();
     } catch {
       setError("Помилка видалення джерела");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ─── article mapping tab ─────────────────────────────────────────────────────
-
-  const openAddArticleMap = () => {
-    setEditId(null);
-    setModalError(null);
-    setArticleMapForm({ ...EMPTY_ARTICLE_MAP, source_id: selectedSourceId || "" });
-    setShowModal(true);
-  };
-
-  const openEditArticleMap = (m) => {
-    setModalError(null);
-    setEditId(m.mapping_id);
-    setArticleMapForm({
-      source_id: m.source_id || "",
-      source_article_id: m.source_article_id || "",
-      source_article_name: m.source_article_name || "",
-      article_id: m.article_id || "",
-      comment: m.comment || "",
-      is_active: m.is_active !== false,
-    });
-    setShowModal(true);
-  };
-
-  const saveArticleMap = async (e) => {
-    e.preventDefault();
-    if (!articleMapForm.source_id) {
-      setModalError("Оберіть джерело");
-      return;
-    }
-    if (!Number(articleMapForm.article_id)) {
-      setModalError("Оберіть внутрішню статтю");
-      return;
-    }
-    setLoading(true);
-    setModalError(null);
-    try {
-      if (editId) {
-        await updateArticleMapping(editId, articleMapForm);
-      } else {
-        await createArticleMapping(articleMapForm);
-      }
-      setShowModal(false);
-      await loadArticleMappings();
-    } catch (err) {
-      setModalError(formatApiError(err, "Помилка збереження відповідності статті"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteArticleMap = async (mappingId) => {
-    if (!window.confirm(`Деактивувати відповідність ID ${mappingId}?`)) return;
-    setLoading(true);
-    try {
-      await deleteArticleMapping(mappingId);
-      await loadArticleMappings();
-    } catch {
-      setError("Помилка видалення відповідності");
     } finally {
       setLoading(false);
     }
@@ -340,11 +264,6 @@ function ImportSourcesPage() {
     return s ? s.source_name : `#${id}`;
   };
 
-  const articleNameById = (id) => {
-    const a = articles.find((x) => x.article_id === id);
-    return a ? a.article_name : `#${id}`;
-  };
-
   const deptNameById = (id) => {
     const d = departments.find((x) => x.department_id === id);
     return d ? d.department_name : `#${id}`;
@@ -411,18 +330,24 @@ function ImportSourcesPage() {
             </div>
           )}
 
-          {/* articles tab toolbar */}
-          {activeTab === "articles" && sourceFilterBar(openAddArticleMap)}
-
           {/* departments tab toolbar */}
           {activeTab === "departments" && sourceFilterBar(openAddDeptMap)}
         </div>
 
         {error && <div className="error-message">{error}</div>}
 
-        {loading ? (
+        {/* ── ARTICLES TAB: enterprise staging component ────────────────── */}
+        {activeTab === "articles" && (
+          <ArticleSourceMappingPage
+            asTab={true}
+            initialSourceId={initialSourceId}
+            setActivePage={setActivePage}
+          />
+        )}
+
+        {activeTab !== "articles" && loading ? (
           <div className="loading">Завантаження...</div>
-        ) : (
+        ) : activeTab !== "articles" && (
           <>
             {/* ── SOURCES TABLE ─────────────────────────────────────────── */}
             {activeTab === "sources" && (
@@ -432,7 +357,7 @@ function ImportSourcesPage() {
                     <th>ID</th>
                     <th>Назва</th>
                     <th>Тип</th>
-                    <th>Посилання / Опис</th>
+                    <th>Підключення / URL</th>
                     <th>Активне</th>
                     <th>Дії</th>
                   </tr>
@@ -452,61 +377,18 @@ function ImportSourcesPage() {
                         <td>
                           <span className="badge">{s.source_type}</span>
                         </td>
-                        <td className="url-cell">{s.source_url || "—"}</td>
+                        <td className="url-cell">
+                          {s.source_type === "olap_sql"
+                            ? [s.db_server, s.db_port].filter(Boolean).join(":") +
+                              (s.db_database ? ` / ${s.db_database}` : "") || "—"
+                            : s.source_url || "—"}
+                        </td>
                         <td>{s.is_active ? "✓" : "—"}</td>
                         <td className="actions-cell">
                           <Button variant="secondary" onClick={() => openEditSource(s)}>
                             Редагувати
                           </Button>
                           <Button variant="danger" onClick={() => handleDeleteSource(s.id)}>
-                            Видалити
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {/* ── ARTICLE MAPPING TABLE ─────────────────────────────────── */}
-            {activeTab === "articles" && (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Джерело</th>
-                    <th>Зовн. код</th>
-                    <th>Зовн. назва</th>
-                    <th>→ Стаття</th>
-                    <th>Коментар</th>
-                    <th>Дії</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {articleMappings.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="empty-row">
-                        Відповідностей немає
-                      </td>
-                    </tr>
-                  ) : (
-                    articleMappings.map((m) => (
-                      <tr key={m.mapping_id} className={m.is_active ? "" : "row-inactive"}>
-                        <td>{m.mapping_id}</td>
-                        <td>{sourceNameById(m.source_id)}</td>
-                        <td>{m.source_article_id || "—"}</td>
-                        <td>{m.source_article_name || "—"}</td>
-                        <td>{articleNameById(m.article_id)}</td>
-                        <td>{m.comment || "—"}</td>
-                        <td className="actions-cell">
-                          <Button variant="secondary" onClick={() => openEditArticleMap(m)}>
-                            Редагувати
-                          </Button>
-                          <Button
-                            variant="danger"
-                            onClick={() => handleDeleteArticleMap(m.mapping_id)}
-                          >
                             Видалити
                           </Button>
                         </td>
@@ -570,12 +452,14 @@ function ImportSourcesPage() {
 
       {showModal && activeTab === "sources" && (
         <Modal
-          title={editId ? "Редагування джерела" : "Нове джерело"}
+          title={editId ? "Редагування джерела імпорту" : "Джерело імпорту"}
           onClose={() => setShowModal(false)}
           size="large"
         >
           <form onSubmit={saveSource}>
             <div className="form-grid">
+
+              {/* ── common: name + type ─────────────────────────────────── */}
               <div className="form-field">
                 <label>Назва джерела *</label>
                 <input
@@ -587,157 +471,187 @@ function ImportSourcesPage() {
               </div>
 
               <div className="form-field">
-                <label>Тип</label>
+                <label>Тип джерела</label>
                 <select
                   value={sourceForm.source_type}
                   onChange={(e) => setSourceForm({ ...sourceForm, source_type: e.target.value })}
                 >
                   <option value="google_sheets">Google Sheets</option>
                   <option value="excel_file">Excel / CSV</option>
+                  <option value="olap_ssas_dax">SSAS Tabular / DAX (MSOLAP)</option>
+                  <option value="sql_odbc">SQL Server / ODBC</option>
                   <option value="api">API</option>
                   <option value="manual">Вручну</option>
+                  <option value="olap_sql">OLAP / SQL (застарілий)</option>
                 </select>
               </div>
 
-              <div className="form-field full">
-                <label>Посилання / Опис</label>
-                <input
-                  value={sourceForm.source_url}
-                  onChange={(e) => setSourceForm({ ...sourceForm, source_url: e.target.value })}
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                />
-              </div>
+              {/* ── non-OLAP: URL + article column mapping ──────────────── */}
+              {!["olap_ssas_dax", "sql_odbc", "olap_sql"].includes(sourceForm.source_type) && (
+                <>
+                  <div className="form-field full">
+                    <label>Google Sheets URL або опис</label>
+                    <input
+                      value={sourceForm.source_url}
+                      onChange={(e) => setSourceForm({ ...sourceForm, source_url: e.target.value })}
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                    />
+                  </div>
 
-              <div className="form-field full">
-                <label className="section-label">Колонки для синхронізації довідника статей (опційно)</label>
-              </div>
+                  <div className="form-field full">
+                    <div className="section-divider">
+                      <span className="section-label">Поля для синхронізації довідника статей (необов'язково)</span>
+                      <p className="section-help">Використовується лише для автоматичного оновлення довідника статей PnL. Не використовується для імпорту сум PnL.</p>
+                    </div>
+                  </div>
 
-              {[
-                ["article_id_field", "Колонка: article_id"],
-                ["article_name_field", "Колонка: article_name"],
-                ["article_type_field", "Колонка: article_type"],
-                ["level1_field", "Колонка: level1"],
-                ["level2_field", "Колонка: level2"],
-                ["pnl_id_field", "Колонка: pnl_id"],
-              ].map(([field, label]) => (
-                <div className="form-field" key={field}>
-                  <label>{label}</label>
-                  <input
-                    value={sourceForm[field]}
-                    onChange={(e) => setSourceForm({ ...sourceForm, [field]: e.target.value })}
-                    placeholder="Назва колонки у джерелі"
-                  />
-                </div>
-              ))}
+                  {[
+                    ["article_id_field", "Колонка: article_id"],
+                    ["article_name_field", "Колонка: article_name"],
+                    ["article_type_field", "Колонка: article_type"],
+                    ["level1_field", "Колонка: level1"],
+                    ["level2_field", "Колонка: level2"],
+                    ["pnl_id_field", "Колонка: pnl_id"],
+                  ].map(([field, label]) => (
+                    <div className="form-field" key={field}>
+                      <label>{label}</label>
+                      <input
+                        value={sourceForm[field]}
+                        onChange={(e) => setSourceForm({ ...sourceForm, [field]: e.target.value })}
+                        placeholder="Назва колонки у джерелі"
+                      />
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* ── OLAP / SQL connection fields ─────────────────────────── */}
+              {["olap_ssas_dax", "sql_odbc", "olap_sql"].includes(sourceForm.source_type) && (
+                <>
+                  <div className="form-field full">
+                    <div className="section-divider">
+                      <span className="section-label">
+                        {sourceForm.source_type === "olap_ssas_dax"
+                          ? "Підключення до SSAS Tabular (DAX / MSOLAP)"
+                          : sourceForm.source_type === "sql_odbc"
+                          ? "Підключення до SQL Server (ODBC)"
+                          : "Підключення до бази даних / OLAP"}
+                      </span>
+                      <p className="section-help">
+                        {sourceForm.source_type === "olap_ssas_dax"
+                          ? "Для DAX-запитів (EVALUATE SUMMARIZECOLUMNS...). Потрібен провайдер MSOLAP на сервері backend."
+                          : sourceForm.source_type === "sql_odbc"
+                          ? "Для звичайних SQL-запитів. Потрібен ODBC Driver 17/18 for SQL Server."
+                          : "Підтримується MSSQL, PostgreSQL, OLAP cubes, BI datasets."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="form-field">
+                    <label>Сервер *</label>
+                    <input
+                      value={sourceForm.db_server}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_server: e.target.value })}
+                      placeholder="192.168.1.10 або server.domain.com"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>Порт</label>
+                    <input
+                      value={sourceForm.db_port}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_port: e.target.value })}
+                      placeholder="1433 (MSSQL) / 5432 (PG) / 8088 (OLAP)"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>База даних *</label>
+                    <input
+                      value={sourceForm.db_database}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_database: e.target.value })}
+                      placeholder="MyDatabase"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>Куб / Модель (опціонально)</label>
+                    <input
+                      value={sourceForm.db_cube_model}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_cube_model: e.target.value })}
+                      placeholder="SalesAnalysis (для OLAP / Power BI)"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>Логін</label>
+                    <input
+                      value={sourceForm.db_login}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_login: e.target.value })}
+                      placeholder="sa / service_user"
+                      autoComplete="username"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>Пароль</label>
+                    <input
+                      type="password"
+                      value={sourceForm.db_password}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_password: e.target.value })}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                    />
+                  </div>
+
+                  <div className="form-field full">
+                    <label>
+                      {sourceForm.source_type === "olap_ssas_dax"
+                        ? "DAX запит (EVALUATE ...)"
+                        : "SQL запит"}
+                    </label>
+                    <textarea
+                      className="query-textarea"
+                      value={sourceForm.db_query}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_query: e.target.value })}
+                      placeholder={
+                        sourceForm.source_type === "olap_ssas_dax"
+                          ? "EVALUATE\nSUMMARIZECOLUMNS(\n    dim_date[Period],\n    dim_department[DeptCode],\n    fact_pnl[ArticleCode],\n    \"Amount\", SUM(fact_pnl[Amount])\n)"
+                          : "SELECT department_code, article_code, period, amount\nFROM fact_pnl\nWHERE period >= '2025-01-01'"
+                      }
+                      rows={7}
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>Інтервал авто-оновлення (хв., опціонально)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={sourceForm.db_refresh_interval}
+                      onChange={(e) => setSourceForm({ ...sourceForm, db_refresh_interval: e.target.value })}
+                      placeholder="60"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <div className="olap-info-box">
+                      <strong>Архітектурна нотатка</strong>
+                      <ul>
+                        <li>Підключення зберігається, але не виконується автоматично</li>
+                        <li>Запуск ETL / refresh — у наступних релізах</li>
+                        <li>Маппінг статей і підрозділів працює для всіх типів джерел</li>
+                      </ul>
+                    </div>
+                  </div>
+                </>
+              )}
+
             </div>
 
             {modalError && <div className="modal-error">{modalError}</div>}
             <div className="modal-actions">
               <Button type="submit" variant="primary" disabled={loading}>
-                {loading ? "Збереження..." : "Зберегти"}
-              </Button>
-              <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>
-                Скасувати
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {showModal && activeTab === "articles" && (
-        <Modal
-          title={editId ? "Редагування відповідності статті" : "Нова відповідність статті"}
-          onClose={() => setShowModal(false)}
-        >
-          <form onSubmit={saveArticleMap}>
-            <div className="form-row">
-              {sources.length === 0 ? (
-                <p className="no-sources-hint">
-                  Спочатку створіть джерело імпорту у вкладці «Джерела»
-                </p>
-              ) : (
-                <select
-                  value={articleMapForm.source_id}
-                  onChange={(e) =>
-                    setArticleMapForm({ ...articleMapForm, source_id: e.target.value })
-                  }
-                  required
-                >
-                  <option value="" disabled>Джерело *</option>
-                  {sources.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.source_name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <div className="form-row">
-              <input
-                placeholder="Зовнішній код статті"
-                value={articleMapForm.source_article_id}
-                onChange={(e) =>
-                  setArticleMapForm({ ...articleMapForm, source_article_id: e.target.value })
-                }
-              />
-            </div>
-
-            <div className="form-row">
-              <input
-                placeholder="Зовнішня назва статті"
-                value={articleMapForm.source_article_name}
-                onChange={(e) =>
-                  setArticleMapForm({ ...articleMapForm, source_article_name: e.target.value })
-                }
-              />
-            </div>
-
-            <div className="form-row">
-              {articles.length === 0 ? (
-                <p className="no-sources-hint">
-                  Довідник статей порожній. Спочатку заповніть «Статті PnL».
-                </p>
-              ) : (
-                <SearchableSelect
-                  options={articles}
-                  value={articleMapForm.article_id}
-                  onChange={(val) => setArticleMapForm({ ...articleMapForm, article_id: val })}
-                  getOptionValue={(a) => String(a.article_id)}
-                  getOptionLabel={(a) => `${a.article_id} — ${a.article_name}`}
-                  placeholder="Пошук статті за ID або назвою..."
-                />
-              )}
-            </div>
-
-            <div className="form-row">
-              <input
-                placeholder="Коментар"
-                value={articleMapForm.comment}
-                onChange={(e) =>
-                  setArticleMapForm({ ...articleMapForm, comment: e.target.value })
-                }
-              />
-            </div>
-
-            {editId && (
-              <div className="form-row">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={articleMapForm.is_active}
-                    onChange={(e) =>
-                      setArticleMapForm({ ...articleMapForm, is_active: e.target.checked })
-                    }
-                  />
-                  &nbsp;Активне
-                </label>
-              </div>
-            )}
-
-            {modalError && <div className="modal-error">{modalError}</div>}
-            <div className="modal-actions">
-              <Button type="submit" variant="primary" disabled={loading || sources.length === 0 || articles.length === 0}>
                 {loading ? "Збереження..." : "Зберегти"}
               </Button>
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>
@@ -940,6 +854,19 @@ function ImportSourcesPage() {
           padding-top: 8px;
         }
 
+        .section-divider {
+          border-top: 1px solid #eee;
+          padding-top: 12px;
+          margin-top: 4px;
+        }
+
+        .section-help {
+          font-size: 12px;
+          color: #888;
+          margin: 4px 0 0;
+          line-height: 1.4;
+        }
+
         .form-field input,
         .form-field select {
           padding: 8px 10px;
@@ -1010,6 +937,53 @@ function ImportSourcesPage() {
           gap: 10px;
           justify-content: flex-end;
           margin-top: 20px;
+        }
+
+        .query-textarea {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 8px 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 13px;
+          font-family: 'Consolas', 'Monaco', monospace;
+          line-height: 1.5;
+          resize: vertical;
+          color: #222;
+        }
+
+        .query-textarea:focus {
+          outline: none;
+          border-color: #3498db;
+          box-shadow: 0 0 4px rgba(52,152,219,0.2);
+        }
+
+        .olap-info-box {
+          background: #f0f7ff;
+          border: 1px solid #bcd;
+          border-radius: 4px;
+          padding: 10px 14px;
+          font-size: 12px;
+          color: #345;
+          line-height: 1.5;
+        }
+
+        .olap-info-box strong {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          color: #567;
+        }
+
+        .olap-info-box ul {
+          margin: 0;
+          padding-left: 16px;
+        }
+
+        .olap-info-box li {
+          margin-bottom: 2px;
         }
       `}</style>
     </>

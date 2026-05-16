@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
+import SearchableSelect from "../components/ui/SearchableSelect";
 
 import {
   getDepartments,
@@ -9,12 +10,21 @@ import {
   updateDepartment,
   deactivateDepartment,
 } from "../api/departmentsApi";
+import { getHoldings } from "../api/holdingsApi";
+import { getOrganizations } from "../api/organizationsApi";
+import { getRegions } from "../api/regionsApi";
+import { getBranches } from "../api/branchesApi";
 
 function DepartmentsPage({ setActivePage }) {
   const [departments, setDepartments] = useState([]);
+  const [holdings, setHoldings] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
+  const [regions, setRegions] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editDepartmentId, setEditDepartmentId] = useState(null);
+  const [formError, setFormError] = useState("");
 
   const emptyForm = {
     department_id: "",
@@ -29,8 +39,28 @@ function DepartmentsPage({ setActivePage }) {
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
-    loadDepartments();
+    loadAll();
   }, []);
+
+  const loadAll = async () => {
+    try {
+      const [depts, h, o, r, b] = await Promise.all([
+        getDepartments(),
+        getHoldings(),
+        getOrganizations(),
+        getRegions(),
+        getBranches(),
+      ]);
+      setDepartments(depts);
+      setHoldings(h);
+      setOrganizations(o);
+      setRegions(r);
+      setBranches(b);
+    } catch (err) {
+      console.error("Помилка завантаження:", err);
+      alert("Помилка завантаження даних");
+    }
+  };
 
   const loadDepartments = async () => {
     try {
@@ -38,13 +68,13 @@ function DepartmentsPage({ setActivePage }) {
       setDepartments(data);
     } catch (err) {
       console.error("Помилка завантаження підрозділів:", err);
-      alert("Помилка завантаження підрозділів");
     }
   };
 
   const openAddModal = () => {
     setEditDepartmentId(null);
     setForm(emptyForm);
+    setFormError("");
     setShowModal(true);
   };
 
@@ -59,19 +89,23 @@ function DepartmentsPage({ setActivePage }) {
       department_name: department.department_name || "",
       is_active: department.is_active ?? true,
     });
+    setFormError("");
     setShowModal(true);
   };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm({
-      ...form,
-      [name]: type === "checkbox" ? checked : value,
-    });
+    setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   };
 
   const saveDepartment = async (e) => {
     e.preventDefault();
+
+    if (!form.department_name.trim()) {
+      setFormError("Назва підрозділу є обов'язковою");
+      return;
+    }
+    setFormError("");
 
     try {
       if (editDepartmentId) {
@@ -86,7 +120,14 @@ function DepartmentsPage({ setActivePage }) {
       await loadDepartments();
     } catch (err) {
       console.error("Помилка збереження підрозділу:", err);
-      alert("Помилка збереження підрозділу");
+      const detail = err?.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        setFormError(detail.map((d) => d.msg || JSON.stringify(d)).join("; "));
+      } else if (typeof detail === "string") {
+        setFormError(detail);
+      } else {
+        setFormError("Помилка збереження. Перевірте дані.");
+      }
     }
   };
 
@@ -94,10 +135,7 @@ function DepartmentsPage({ setActivePage }) {
     const confirmed = window.confirm(
       `Деактивувати підрозділ ${department.department_id}?`
     );
-
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       await deactivateDepartment(department.department_id);
@@ -109,15 +147,16 @@ function DepartmentsPage({ setActivePage }) {
   };
 
   const filteredDepartments = departments.filter((item) =>
-    `
-      ${item.department_id}
-      ${item.holding_name}
-      ${item.organization_name}
-      ${item.region_name}
-      ${item.branch_name}
-      ${item.department_name}
-      ${item.is_active ? "активний" : "неактивний"}
-    `
+    [
+      item.department_id,
+      item.holding_name,
+      item.organization_name,
+      item.region_name,
+      item.branch_name,
+      item.department_name,
+      item.is_active ? "активний" : "неактивний",
+    ]
+      .join(" ")
       .toLowerCase()
       .includes(search.toLowerCase())
   );
@@ -138,7 +177,6 @@ function DepartmentsPage({ setActivePage }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-
             <Button variant="primary" onClick={openAddModal}>
               + Додати підрозділ
             </Button>
@@ -215,46 +253,67 @@ function DepartmentsPage({ setActivePage }) {
 
               <div className="form-field">
                 <label>Холдинг</label>
-                <input
-                  name="holding_name"
+                <SearchableSelect
+                  options={holdings}
                   value={form.holding_name}
-                  onChange={handleChange}
+                  onChange={(val) =>
+                    setForm((prev) => ({ ...prev, holding_name: val }))
+                  }
+                  getOptionValue={(h) => h.holding_name}
+                  getOptionLabel={(h) => h.holding_name}
+                  placeholder="Оберіть холдинг..."
                 />
               </div>
 
               <div className="form-field">
                 <label>Організація</label>
-                <input
-                  name="organization_name"
+                <SearchableSelect
+                  options={organizations}
                   value={form.organization_name}
-                  onChange={handleChange}
+                  onChange={(val) =>
+                    setForm((prev) => ({ ...prev, organization_name: val }))
+                  }
+                  getOptionValue={(o) => o.organization_name}
+                  getOptionLabel={(o) => o.organization_name}
+                  placeholder="Оберіть організацію..."
                 />
               </div>
 
               <div className="form-field">
                 <label>Регіон</label>
-                <input
-                  name="region_name"
+                <SearchableSelect
+                  options={regions}
                   value={form.region_name}
-                  onChange={handleChange}
+                  onChange={(val) =>
+                    setForm((prev) => ({ ...prev, region_name: val }))
+                  }
+                  getOptionValue={(r) => r.region_name}
+                  getOptionLabel={(r) => r.region_name}
+                  placeholder="Оберіть регіон..."
                 />
               </div>
 
               <div className="form-field">
                 <label>Філія</label>
-                <input
-                  name="branch_name"
+                <SearchableSelect
+                  options={branches}
                   value={form.branch_name}
-                  onChange={handleChange}
+                  onChange={(val) =>
+                    setForm((prev) => ({ ...prev, branch_name: val }))
+                  }
+                  getOptionValue={(b) => b.branch_name}
+                  getOptionLabel={(b) => b.branch_name}
+                  placeholder="Оберіть філію..."
                 />
               </div>
 
               <div className="form-field full">
-                <label>Підрозділ</label>
+                <label>Підрозділ *</label>
                 <input
                   name="department_name"
                   value={form.department_name}
                   onChange={handleChange}
+                  placeholder="Назва підрозділу"
                 />
               </div>
 
@@ -272,6 +331,19 @@ function DepartmentsPage({ setActivePage }) {
                 </div>
               )}
             </div>
+
+            {formError && (
+              <div
+                style={{
+                  color: "#d9534f",
+                  fontSize: 13,
+                  marginBottom: 8,
+                  marginTop: 4,
+                }}
+              >
+                {formError}
+              </div>
+            )}
 
             <div className="modal-actions">
               <Button variant="secondary" onClick={() => setShowModal(false)}>

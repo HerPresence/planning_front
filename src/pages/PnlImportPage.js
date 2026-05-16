@@ -7,12 +7,15 @@ import {
   previewSource,
   validateImport,
   commitImport,
+  testOlapConnection,
   getPnlColumnMapping,
   savePnlColumnMapping,
   createArticleMapping,
   createDepartmentMapping,
 } from "../api/pnlImportApi";
 import { getReferenceArticles, getReferenceDepartments } from "../api/referenceApi";
+import { createArticle } from "../api/articlesApi";
+import { getPnlStructures } from "../api/pnlStructureApi";
 
 const EMPTY_MAPPING = {
   period_col: "",
@@ -51,7 +54,7 @@ function extractUnmapped(errors, type) {
 }
 
 // Single quick-mapping row
-function QuickMapRow({ item, options, getOptionValue, getOptionLabel, getSearchText, onSave, saving }) {
+function QuickMapRow({ item, options, getOptionValue, getOptionLabel, getSearchText, onSave, saving, onCreateArticle, isAutoSaved }) {
   const [selectedId, setSelectedId] = useState("");
   const [saved, setSaved] = useState(false);
   const [rowError, setRowError] = useState(null);
@@ -68,12 +71,12 @@ function QuickMapRow({ item, options, getOptionValue, getOptionLabel, getSearchT
     }
   };
 
-  if (saved) {
+  if (saved || isAutoSaved) {
     return (
       <tr className="qmap-row qmap-saved">
         <td>{item.ext_code || "—"}</td>
         <td>{item.ext_name || "—"}</td>
-        <td colSpan="2" className="qmap-ok">Збережено</td>
+        <td colSpan={onCreateArticle ? 3 : 2} className="qmap-ok">✓ Збережено</td>
       </tr>
     );
   }
@@ -103,7 +106,151 @@ function QuickMapRow({ item, options, getOptionValue, getOptionLabel, getSearchT
           Зберегти
         </Button>
       </td>
+      {onCreateArticle && (
+        <td>
+          <Button variant="secondary" onClick={() => onCreateArticle(item)}>
+            + Створити статтю
+          </Button>
+        </td>
+      )}
     </tr>
+  );
+}
+
+function CreateArticleModal({ item, sourceId, articleTypes, refArticles, pnlStructures, onClose, onSuccess }) {
+  const [form, setForm] = useState({
+    article_name: item.ext_name || "",
+    article_type: "",
+    level1: item.ext_name || "",
+    level2: "",
+    pnl_id: null,
+  });
+  const [pnlError, setPnlError] = useState(false);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  // Check if article with this ext_code already exists as article_id
+  const existingArticle = refArticles.find(
+    (a) => String(a.article_id) === String(item.ext_code)
+  );
+
+  const pnlIdValid = form.pnl_id && Number(form.pnl_id) !== 0;
+  const canSubmit = form.article_name.trim() && pnlIdValid;
+
+  const doCreateAndMap = async () => {
+    if (!form.article_name.trim()) { setError("Введіть назву статті"); return; }
+    if (!pnlIdValid) { setPnlError(true); return; }
+    setSaving(true);
+    setError(null);
+    setPnlError(false);
+    try {
+      // Backend returns existing article if article_id already exists
+      const res = await createArticle({
+        article_id: item.ext_code,
+        article_name: form.article_name.trim(),
+        article_type: form.article_type,
+        level1: form.level1,
+        level2: form.level2,
+        pnl_id: Number(form.pnl_id),
+      });
+      const article = res.article;
+      await createArticleMapping({
+        source_id: sourceId,
+        source_article_id: item.ext_code,
+        source_article_name: item.ext_name,
+        article_id: article.article_id,
+        comment: "",
+      });
+      onSuccess(article);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(Array.isArray(detail) ? detail.map((e) => e.msg).join("; ") : (detail || "Помилка збереження"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal">
+        <div className="modal-header">
+          <h2>Нова стаття PnL</h2>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+
+        <div className="ext-context-row">
+          <span>Зовн. код: <strong>{item.ext_code || "—"}</strong></span>
+          <span>Зовн. назва: <strong>{item.ext_name || "—"}</strong></span>
+        </div>
+
+        {existingArticle && (
+          <div className="existing-warning" style={{ marginBottom: 12 }}>
+            ℹ Стаття з кодом «{item.ext_code}» вже існує ({existingArticle.article_name}).
+            При збереженні буде створено тільки маппінг.
+          </div>
+        )}
+
+        {error && <div className="error-message">{error}</div>}
+
+        <div className="form-grid">
+          <div className="form-field full">
+            <label>Назва статті *</label>
+            <input
+              value={form.article_name}
+              onChange={(e) => setForm({ ...form, article_name: e.target.value })}
+            />
+          </div>
+          <div className="form-field">
+            <label>Тип статті</label>
+            <select value={form.article_type} onChange={(e) => setForm({ ...form, article_type: e.target.value })}>
+              <option value="">— не вказано —</option>
+              {articleTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              {articleTypes.length === 0 && (
+                <>
+                  <option value="Дохід">Дохід</option>
+                  <option value="Витрати">Витрати</option>
+                </>
+              )}
+            </select>
+          </div>
+          <div className="form-field">
+            <label>PnL ID *</label>
+            <SearchableSelect
+              options={pnlStructures}
+              value={form.pnl_id || ""}
+              onChange={(val) => { setForm({ ...form, pnl_id: val || null }); setPnlError(false); }}
+              getOptionValue={(p) => String(p.id)}
+              getOptionLabel={(p) => `${p.pnl_code || p.id} — ${p.pnl_name}`}
+              placeholder="-- Оберіть PnL структуру --"
+            />
+            {pnlError && (
+              <span style={{ color: "#c0392b", fontSize: 12, marginTop: 3 }}>
+                Оберіть структуру PnL
+              </span>
+            )}
+          </div>
+          <div className="form-field">
+            <label>Level 1</label>
+            <input value={form.level1} onChange={(e) => setForm({ ...form, level1: e.target.value })} />
+          </div>
+          <div className="form-field">
+            <label>Level 2</label>
+            <input value={form.level2} onChange={(e) => setForm({ ...form, level2: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Скасувати</button>
+          <button
+            className="btn btn-primary"
+            onClick={doCreateAndMap}
+            disabled={saving || !canSubmit}
+          >
+            {saving ? "Збереження..." : "Створити статтю і маппінг"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -115,6 +262,7 @@ function PnlImportPage() {
   // reference data for quick mapping
   const [refDepts, setRefDepts] = useState([]);
   const [refArticles, setRefArticles] = useState([]);
+  const [pnlStructures, setPnlStructures] = useState([]);
 
   // source input
   const [sheetUrl, setSheetUrl] = useState("");
@@ -148,10 +296,16 @@ function PnlImportPage() {
   // quick mapping state
   const [savingQuickMap, setSavingQuickMap] = useState(false);
 
+  // create-article modal
+  const [createArticleFor, setCreateArticleFor] = useState(null);
+  const [autoSavedArticleKeys, setAutoSavedArticleKeys] = useState(new Set());
+
   // ui
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingImport, setLoadingImport] = useState(false);
   const [loadingCommit, setLoadingCommit] = useState(false);
+  const [loadingTest, setLoadingTest] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -159,14 +313,20 @@ function PnlImportPage() {
       getImportSources(),
       getReferenceArticles(),
       getReferenceDepartments(),
-    ]).then(([src, art, dept]) => {
+      getPnlStructures(),
+    ]).then(([src, art, dept, pnl]) => {
       setSources(src);
       setRefArticles(art);
       setRefDepts(dept);
+      setPnlStructures(pnl);
     }).catch(() => setError("Помилка завантаження довідників"));
   }, []);
 
   const isGoogleSheets = selectedSource?.source_type === "google_sheets";
+  const isOlap = ["olap_ssas_dax", "sql_odbc", "olap_sql"].includes(
+    selectedSource?.source_type
+  );
+  const isSsasDax = selectedSource?.source_type === "olap_ssas_dax";
 
   const loadSavedMapping = async (sourceId) => {
     if (!sourceId) { setSavedMapping(null); return; }
@@ -201,6 +361,7 @@ function PnlImportPage() {
     setMappingSaved(false);
     setImportResult(null);
     setCommitResult(null);
+    setTestResult(null);
     setError(null);
   };
 
@@ -228,7 +389,10 @@ function PnlImportPage() {
 
     try {
       const fd = new FormData();
-      if (isGoogleSheets) {
+      if (isOlap) {
+        fd.append("source_type", selectedSource.source_type);
+        fd.append("source_id", selectedSourceId);
+      } else if (isGoogleSheets) {
         fd.append("source_type", "google_sheets");
         fd.append("sheet_url", sheetUrl);
         if (sheetName) fd.append("sheet_name", sheetName);
@@ -279,7 +443,9 @@ function PnlImportPage() {
     fd.append("import_type", importType);
     fd.append("scenario", scenario);
     fd.append("version_name", versionName);
-    if (isGoogleSheets) {
+    if (isOlap) {
+      fd.append("source_type", selectedSource.source_type);
+    } else if (isGoogleSheets) {
       fd.append("source_type", "google_sheets");
       fd.append("sheet_url", sheetUrl);
       if (sheetName) fd.append("sheet_name", sheetName);
@@ -378,6 +544,33 @@ function PnlImportPage() {
     }
   };
 
+  const handleCreateArticleSuccess = (newArticle) => {
+    setRefArticles((prev) => {
+      const exists = prev.find((a) => a.article_id === newArticle.article_id);
+      return exists ? prev : [...prev, newArticle];
+    });
+    const item = createArticleFor;
+    setAutoSavedArticleKeys((prev) => new Set([...prev, `${item.ext_code}|${item.ext_name}`]));
+    setCreateArticleFor(null);
+  };
+
+  const handleTestConnection = async () => {
+    if (!selectedSourceId) return;
+    setLoadingTest(true);
+    setTestResult(null);
+    setError(null);
+    try {
+      const res = await testOlapConnection(selectedSourceId);
+      setTestResult(res);
+    } catch (err) {
+      setTestResult({ connection_ok: false, error: err.response?.data?.detail || "Помилка запиту" });
+    } finally {
+      setLoadingTest(false);
+    }
+  };
+
+  const articleTypes = [...new Set(refArticles.map((a) => a.article_type).filter(Boolean))];
+
   const colOption = (label, field, required = false) => (
     <div className="col-map-row" key={field}>
       <span className="col-map-label">
@@ -432,6 +625,161 @@ function PnlImportPage() {
             )}
           </div>
 
+          {selectedSource && (
+            <div className="source-info-box">
+              Вибране джерело <strong>{selectedSource.source_name}</strong> використовується для:
+              <ul className="source-info-list">
+                <li>імпорту PnL даних</li>
+                <li>створення мапінгу статей</li>
+                <li>створення мапінгу підрозділів</li>
+              </ul>
+            </div>
+          )}
+
+          {selectedSource && isOlap && (
+            <div className="olap-source-info">
+              {isSsasDax && (
+                <div className="olap-mode-badge ssas">
+                  SSAS Tabular / DAX — PowerShell + ADOMD.NET (OLE DB)
+                </div>
+              )}
+              {selectedSource.source_type === "sql_odbc" && (
+                <div className="olap-mode-badge sql">
+                  SQL Server / ODBC — потрібен ODBC Driver 17 або 18
+                </div>
+              )}
+              <div className="olap-info-row">
+                <span className="olap-info-label">Сервер:</span>
+                <span className="olap-info-value">
+                  {selectedSource.db_server || "—"}
+                  {selectedSource.db_port ? `:${selectedSource.db_port}` : ""}
+                </span>
+              </div>
+              {selectedSource.db_database && (
+                <div className="olap-info-row">
+                  <span className="olap-info-label">База даних:</span>
+                  <span className="olap-info-value">{selectedSource.db_database}</span>
+                </div>
+              )}
+              {selectedSource.db_cube_model && (
+                <div className="olap-info-row">
+                  <span className="olap-info-label">Куб / Модель:</span>
+                  <span className="olap-info-value">{selectedSource.db_cube_model}</span>
+                </div>
+              )}
+              {selectedSource.db_query && (
+                <div className="olap-info-row olap-query-row">
+                  <span className="olap-info-label">SQL/MDX запит:</span>
+                  <pre className="olap-query-preview">{selectedSource.db_query}</pre>
+                </div>
+              )}
+              {!selectedSource.db_query && (
+                <div className="olap-warn">SQL/MDX запит не налаштовано. Відредагуйте джерело у «Відповідність імпорту».</div>
+              )}
+            </div>
+          )}
+
+          {/* ── OLAP: test connection button + result ── */}
+          {selectedSource && isOlap && (
+            <div className="field-row" style={{ marginTop: 8 }}>
+              <Button
+                variant="secondary"
+                onClick={handleTestConnection}
+                disabled={loadingTest}
+              >
+                {loadingTest ? "Перевірка..." : "Перевірити підключення"}
+              </Button>
+            </div>
+          )}
+
+          {testResult && (
+            <div className={`olap-test-result ${testResult.connection_ok ? "ok" : "fail"}`}>
+              <div className="olap-test-header">
+                {testResult.connection_ok
+                  ? `Підключення OK — ${testResult.driver_used}`
+                  : "Підключення не вдалось"}
+              </div>
+
+              {/* SSAS transport info */}
+              {testResult.ssas_transport && (
+                <div className="olap-test-section">
+                  <strong>Транспорт SSAS:</strong>{" "}
+                  <span style={{ color: "#1a5276" }}>{testResult.ssas_transport}</span>
+                </div>
+              )}
+              {testResult.ps_script_exists === false && (
+                <div className="olap-test-section" style={{ color: "#c0392b" }}>
+                  <strong>PowerShell script не знайдено:</strong>{" "}
+                  <code>{testResult.ps_script}</code><br />
+                  Переконайтесь, що <code>tools/read_ssas_dax.ps1</code> є в директорії backend.
+                  <br />
+                  ADOMD.NET docs:{" "}
+                  <a href="https://learn.microsoft.com/en-us/analysis-services/client-libraries"
+                     target="_blank" rel="noreferrer">
+                    Microsoft Analysis Services client libraries
+                  </a>
+                </div>
+              )}
+
+              {/* SQL Server ODBC drivers (sql_odbc sources) */}
+              {testResult.mssql_drivers_found && testResult.mssql_drivers_found.length > 0 && (
+                <div className="olap-test-section">
+                  <strong>SQL Server ODBC драйвери:</strong>{" "}
+                  {testResult.mssql_drivers_found.join(", ")}
+                </div>
+              )}
+
+              {testResult.attempts && testResult.attempts.length > 0 && !testResult.connection_ok && (
+                <div className="olap-test-section">
+                  <strong>Спроби:</strong>
+                  <ul className="olap-attempts-list">
+                    {testResult.attempts.map((a, i) => (
+                      <li key={i} className={a.ok ? "attempt-ok" : "attempt-fail"}>
+                        {a.driver}: {a.ok ? "OK" : a.error}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {testResult.connection_ok && testResult.columns && (
+                <div className="olap-test-section">
+                  <strong>Колонки:</strong> {testResult.columns.join(", ")}
+                </div>
+              )}
+
+              {testResult.connection_ok && testResult.rows_preview && testResult.rows_preview.length > 0 && (
+                <div className="olap-test-section">
+                  <strong>Перші {testResult.rows_preview.length} рядки:</strong>
+                  <div className="preview-scroll" style={{ marginTop: 6 }}>
+                    <table className="data-table preview-table">
+                      <thead>
+                        <tr>{testResult.columns.map((c) => <th key={c}>{c}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {testResult.rows_preview.map((row, i) => (
+                          <tr key={i}>
+                            {testResult.columns.map((c) => <td key={c}>{String(row[c] ?? "")}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {testResult.error && (
+                <div className="olap-test-error">{testResult.error}</div>
+              )}
+
+              {!testResult.pyodbc_available && (
+                <div className="olap-test-install">
+                  SQL ODBC: <code>pip install pyodbc</code> або запустіть <code>install_olap.bat</code>.
+                </div>
+              )}
+            </div>
+          )}
+
           {selectedSource && isGoogleSheets && (
             <>
               <div className="field-row">
@@ -454,7 +802,7 @@ function PnlImportPage() {
             </>
           )}
 
-          {selectedSource && !isGoogleSheets && (
+          {selectedSource && !isGoogleSheets && !isOlap && (
             <>
               <div className="field-row">
                 <label>Файл (.xlsx або .csv) *</label>
@@ -481,7 +829,11 @@ function PnlImportPage() {
           {selectedSource && (
             <div className="field-row">
               <Button variant="secondary" onClick={handleLoadColumns} disabled={loadingPreview}>
-                {loadingPreview ? "Читання..." : "Завантажити колонки"}
+                {loadingPreview
+                  ? "Читання..."
+                  : isOlap
+                    ? "Отримати дані з OLAP"
+                    : "Завантажити колонки"}
               </Button>
             </div>
           )}
@@ -689,7 +1041,14 @@ function PnlImportPage() {
         {/* ── QUICK MAPPING ──────────────────────────────────────────────── */}
         {importResult && (unmappedDepts.length > 0 || unmappedArticles.length > 0) && (
           <div className="import-section qmap-section">
-            <h3 className="section-title">Створити відповідності</h3>
+            <div className="qmap-section-header">
+              <h3 className="section-title">Створити відповідності</h3>
+              {selectedSource && (
+                <span className="qmap-source-badge">
+                  Поточне джерело: <strong>{selectedSource.source_name}</strong>
+                </span>
+              )}
+            </div>
             <p className="hint">
               Зіставте зовнішні коди з внутрішніми довідниками, потім повторно запустіть перевірку.
             </p>
@@ -732,30 +1091,28 @@ function PnlImportPage() {
                 <h4 className="qmap-title">
                   Невідомі статті ({unmappedArticles.length})
                 </h4>
-                {refArticles.length === 0 ? (
-                  <p className="no-sources-hint">Довідник статей порожній. Спочатку заповніть «Статті PnL».</p>
-                ) : (
-                  <table className="data-table qmap-table">
-                    <thead>
-                      <tr>
-                        <th>Зовн. код</th><th>Зовн. назва</th><th>→ Стаття PnL</th><th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {unmappedArticles.map((item, i) => (
-                        <QuickMapRow
-                          key={i}
-                          item={item}
-                          options={refArticles}
-                          getOptionValue={(a) => String(a.article_id)}
-                          getOptionLabel={(a) => `${a.article_id} — ${a.article_name}`}
-                          onSave={handleSaveArticleMapping}
-                          saving={savingQuickMap}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <table className="data-table qmap-table">
+                  <thead>
+                    <tr>
+                      <th>Зовн. код</th><th>Зовн. назва</th><th>→ Стаття PnL</th><th></th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unmappedArticles.map((item, i) => (
+                      <QuickMapRow
+                        key={i}
+                        item={item}
+                        options={refArticles}
+                        getOptionValue={(a) => String(a.article_id)}
+                        getOptionLabel={(a) => `${a.article_id} — ${a.article_name}`}
+                        onSave={handleSaveArticleMapping}
+                        saving={savingQuickMap}
+                        onCreateArticle={setCreateArticleFor}
+                        isAutoSaved={autoSavedArticleKeys.has(`${item.ext_code}|${item.ext_name}`)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -767,6 +1124,18 @@ function PnlImportPage() {
           </div>
         )}
       </section>
+
+      {createArticleFor && (
+        <CreateArticleModal
+          item={createArticleFor}
+          sourceId={selectedSourceId}
+          articleTypes={articleTypes}
+          refArticles={refArticles}
+          pnlStructures={pnlStructures}
+          onClose={() => setCreateArticleFor(null)}
+          onSuccess={handleCreateArticleSuccess}
+        />
+      )}
 
       <style>{`
         .import-section {
@@ -936,8 +1305,41 @@ function PnlImportPage() {
         .replace-hint { color: #999; font-size: 12px; }
         .result-stat.success { background: #eafaf1; }
 
+        /* Source info box */
+        .source-info-box {
+          margin: 10px 0 4px;
+          padding: 10px 14px;
+          background: #eaf4fd;
+          border: 1px solid #b3d7f0;
+          border-radius: 6px;
+          font-size: 13px;
+          color: #1a5276;
+          max-width: 600px;
+        }
+        .source-info-list {
+          margin: 4px 0 0 16px;
+          padding: 0;
+          line-height: 1.7;
+        }
+
         /* Quick mapping */
         .qmap-section { background: #fafbfc; border-radius: 6px; padding: 20px; border: 1px solid #e8edf2; }
+        .qmap-section-header {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          margin-bottom: 6px;
+        }
+        .qmap-section-header .section-title { margin: 0; }
+        .qmap-source-badge {
+          font-size: 12px;
+          padding: 3px 10px;
+          background: #fff3cd;
+          border: 1px solid #ffe082;
+          border-radius: 12px;
+          color: #856404;
+          white-space: nowrap;
+        }
         .qmap-block { margin-bottom: 24px; }
         .qmap-title { font-size: 14px; font-weight: 600; color: #2c3e50; margin: 0 0 10px 0; }
         .qmap-table th,
@@ -963,6 +1365,130 @@ function PnlImportPage() {
           border-radius: 4px;
           color: #795548;
           font-size: 13px;
+        }
+
+        .ext-context-row {
+          display: flex;
+          gap: 24px;
+          padding: 8px 12px;
+          background: #f4f6f8;
+          border-radius: 6px;
+          font-size: 13px;
+          color: #555;
+          margin-bottom: 14px;
+        }
+        .ext-context-row strong { color: #222; }
+
+        /* OLAP mode badge */
+        .olap-mode-badge {
+          display: inline-block;
+          padding: 3px 10px;
+          border-radius: 10px;
+          font-size: 11px;
+          font-weight: 600;
+          margin-bottom: 10px;
+        }
+        .olap-mode-badge.ssas { background: #e8f4fd; color: #1a5276; border: 1px solid #aed6f1; }
+        .olap-mode-badge.sql  { background: #eafaf1; color: #1e8449; border: 1px solid #a9dfbf; }
+
+        /* OLAP source info block */
+        .olap-source-info {
+          margin: 8px 0 12px;
+          padding: 12px 16px;
+          background: #f0f4ff;
+          border: 1px solid #c5d3f0;
+          border-radius: 6px;
+          max-width: 680px;
+        }
+        .olap-info-row {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 6px;
+          font-size: 13px;
+          align-items: flex-start;
+        }
+        .olap-info-row:last-child { margin-bottom: 0; }
+        .olap-info-label {
+          min-width: 130px;
+          color: #5c6b8a;
+          font-weight: 500;
+          flex-shrink: 0;
+        }
+        .olap-info-value { color: #1a2a4a; }
+        .olap-query-row { flex-direction: column; gap: 4px; }
+        .olap-query-preview {
+          margin: 0;
+          padding: 8px 10px;
+          background: #e8edf8;
+          border-radius: 4px;
+          font-size: 12px;
+          font-family: monospace;
+          color: #1a2a4a;
+          white-space: pre-wrap;
+          word-break: break-all;
+          max-height: 100px;
+          overflow-y: auto;
+        }
+        .olap-warn {
+          padding: 8px 10px;
+          background: #fff3cd;
+          border: 1px solid #ffe082;
+          border-radius: 4px;
+          font-size: 13px;
+          color: #856404;
+        }
+
+        /* OLAP test result block */
+        .olap-test-result {
+          margin: 10px 0 14px;
+          padding: 12px 16px;
+          border-radius: 6px;
+          max-width: 760px;
+          font-size: 13px;
+        }
+        .olap-test-result.ok   { background: #eafaf1; border: 1px solid #a9dfbf; }
+        .olap-test-result.fail { background: #fdf2f2; border: 1px solid #f5c6cb; }
+        .olap-test-header {
+          font-weight: 600;
+          font-size: 14px;
+          margin-bottom: 10px;
+        }
+        .olap-test-result.ok   .olap-test-header { color: #1e8449; }
+        .olap-test-result.fail .olap-test-header { color: #c0392b; }
+        .olap-test-section { margin-bottom: 8px; color: #333; }
+        .olap-drivers-list,
+        .olap-attempts-list {
+          margin: 4px 0 0 16px;
+          padding: 0;
+          line-height: 1.7;
+        }
+        .attempt-ok   { color: #1e8449; }
+        .attempt-fail { color: #c0392b; }
+        .olap-test-error {
+          margin-top: 8px;
+          padding: 8px 10px;
+          background: #fee;
+          border: 1px solid #fcc;
+          border-radius: 4px;
+          color: #c33;
+          font-size: 12px;
+          word-break: break-word;
+        }
+        .olap-test-install {
+          margin-top: 10px;
+          padding: 10px 12px;
+          background: #fff8e1;
+          border: 1px solid #ffe082;
+          border-radius: 4px;
+          color: #795548;
+          font-size: 12px;
+          line-height: 1.8;
+        }
+        .olap-test-install code {
+          background: #f1f1f1;
+          padding: 1px 5px;
+          border-radius: 3px;
+          font-family: monospace;
         }
       `}</style>
     </>

@@ -110,3 +110,8 @@ export async function commitImport(formData) {
   const res = await axios.post(`${BASE}/commit`, formData);
   return res.data;
 }
+
+export async function testOlapConnection(sourceId) {
+  const res = await axios.get(`${BASE}/test-connection/${sourceId}`);
+  return res.data;
+}

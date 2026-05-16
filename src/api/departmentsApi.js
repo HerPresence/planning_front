@@ -11,11 +11,11 @@ export async function getDepartments() {
 export async function createDepartment(form) {
   const data = new FormData();
 
-  data.append("holding_name", form.holding_name);
-  data.append("organization_name", form.organization_name);
-  data.append("region_name", form.region_name);
-  data.append("branch_name", form.branch_name);
-  data.append("department_name", form.department_name);
+  data.append("holding_name", String(form.holding_name ?? ""));
+  data.append("organization_name", String(form.organization_name ?? ""));
+  data.append("region_name", String(form.region_name ?? ""));
+  data.append("branch_name", String(form.branch_name ?? ""));
+  data.append("department_name", String(form.department_name ?? ""));
 
   const res = await axios.post(API_URL, data);
   return res.data;
@@ -24,11 +24,11 @@ export async function createDepartment(form) {
 export async function updateDepartment(oldDepartmentId, form) {
   const data = new FormData();
 
-  data.append("holding_name", form.holding_name);
-  data.append("organization_name", form.organization_name);
-  data.append("region_name", form.region_name);
-  data.append("branch_name", form.branch_name);
-  data.append("department_name", form.department_name);
+  data.append("holding_name", String(form.holding_name ?? ""));
+  data.append("organization_name", String(form.organization_name ?? ""));
+  data.append("region_name", String(form.region_name ?? ""));
+  data.append("branch_name", String(form.branch_name ?? ""));
+  data.append("department_name", String(form.department_name ?? ""));
   data.append("is_active", form.is_active ? "true" : "false");
 
   const res = await axios.put(`${API_URL}/${oldDepartmentId}`, data);
