@@ -3,6 +3,10 @@ import React, { useEffect, useState } from "react";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import SearchableSelect from "../components/ui/SearchableSelect";
+import LevelCombobox from "../components/ui/LevelCombobox";
+import DataCard from "../components/layout/DataCard";
+import DataTable from "../components/table/DataTable";
+import TableToolbar from "../components/table/TableToolbar";
 
 import {
   getArticles,
@@ -11,6 +15,7 @@ import {
 } from "../api/articlesApi";
 
 import { getPnlStructures } from "../api/pnlStructureApi";
+import { getLevel2, createLevel2, getLevel1, createLevel1 } from "../api/pnlLevelsApi";
 
 const emptyForm = {
   article_id:          "",
@@ -30,6 +35,8 @@ const emptyForm = {
 function ArticlesPage({ setActivePage }) {
   const [articles,      setArticles]      = useState([]);
   const [pnlStructures, setPnlStructures] = useState([]);
+  const [level2Options, setLevel2Options] = useState([]);
+  const [level1Options, setLevel1Options] = useState([]);
   const [search,        setSearch]        = useState("");
   const [showModal,     setShowModal]     = useState(false);
   const [editArticleId, setEditArticleId] = useState(null);
@@ -42,7 +49,19 @@ function ArticlesPage({ setActivePage }) {
   useEffect(() => {
     loadArticles();
     getPnlStructures().then(setPnlStructures).catch(() => {});
+    getLevel2().then(setLevel2Options).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const matched = level2Options.find(
+      (o) => o.name.toLowerCase() === (form.level2 || "").trim().toLowerCase()
+    );
+    if (matched) {
+      getLevel1(matched.id).then(setLevel1Options).catch(() => setLevel1Options([]));
+    } else {
+      setLevel1Options([]);
+    }
+  }, [form.level2, level2Options]);
 
   const loadArticles = async () => {
     setLoadError(null);
@@ -107,22 +126,12 @@ function ArticlesPage({ setActivePage }) {
     e.preventDefault();
     setFormError(null);
 
-    if (!form.article_type) {
-      setFormError("Оберіть тип статті");
-      return;
-    }
-    if (!form.pnl_id || Number(form.pnl_id) === 0) {
-      setFormError("Оберіть структуру PnL");
-      return;
-    }
+    if (!form.article_type) { setFormError("Оберіть тип статті"); return; }
+    if (!form.pnl_id || Number(form.pnl_id) === 0) { setFormError("Оберіть структуру PnL"); return; }
 
     try {
-      if (editArticleId) {
-        await updateArticle(editArticleId, form);
-      } else {
-        await createArticle(form);
-      }
-
+      if (editArticleId) { await updateArticle(editArticleId, form); }
+      else               { await createArticle(form); }
       setShowModal(false);
       setEditArticleId(null);
       setForm(emptyForm);
@@ -140,146 +149,137 @@ function ArticlesPage({ setActivePage }) {
     }
   };
 
+  const handleAddLevel2 = async (name) => {
+    const result = await createLevel2(name);
+    const fresh  = await getLevel2();
+    setLevel2Options(fresh);
+    setForm((f) => ({ ...f, level2: result.name, level1: "" }));
+  };
+
+  const handleAddLevel1 = async (name) => {
+    const matched = level2Options.find(
+      (o) => o.name.toLowerCase() === (form.level2 || "").trim().toLowerCase()
+    );
+    if (!matched) return;
+    const result = await createLevel1(matched.id, name);
+    const fresh  = await getLevel1(matched.id);
+    setLevel1Options(fresh);
+    setForm((f) => ({ ...f, level1: result.name }));
+  };
+
+  const level2Valid = level2Options.some(
+    (o) => o.name.toLowerCase() === (form.level2 || "").trim().toLowerCase()
+  );
+
   const filteredArticles = articles.filter((a) =>
     [
-      a.article_id,
-      a.article_name,
-      a.article_type,
-      a.level1,
-      a.level2,
-      a.pnl_id,
-      a.uid_expense_article,
-      a.expense_element,
-      a.expense_company,
-      a.level1_olap,
-      a.level2_olap,
+      a.article_id, a.article_name, a.article_type, a.level1, a.level2,
+      a.pnl_id, a.uid_expense_article, a.expense_element,
+      a.expense_company, a.level1_olap, a.level2_olap,
     ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(search.toLowerCase())
+      .filter(Boolean).join(" ").toLowerCase().includes(search.toLowerCase())
   );
+
+  const columns = [
+    {
+      key: "article_id", header: "ID статті",
+      style: { fontFamily: "monospace", fontSize: 12 },
+    },
+    { key: "article_name", header: "Назва статті" },
+    {
+      key: "_type", header: "Тип",
+      render: (row) => <span className="badge">{row.article_type}</span>,
+    },
+    { key: "level1", header: "Level 1" },
+    { key: "level2", header: "Level 2" },
+    { key: "pnl_id", header: "PnL ID" },
+    {
+      key: "uid_expense_article", header: "UUID статті",
+      style: { fontFamily: "monospace", fontSize: 11, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" },
+      cellTitle: (row) => row.uid_expense_article || "",
+      render: (row) => row.uid_expense_article || <span style={{ color: "#bbb" }}>—</span>,
+    },
+    {
+      key: "expense_element", header: "Елемент витрат",
+      style: { maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" },
+      cellTitle: (row) => row.expense_element || "",
+      render: (row) => row.expense_element || <span style={{ color: "#bbb" }}>—</span>,
+    },
+    {
+      key: "expense_company", header: "Компанія",
+      style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
+      cellTitle: (row) => row.expense_company || "",
+      render: (row) => row.expense_company || <span style={{ color: "#bbb" }}>—</span>,
+    },
+    {
+      key: "level1_olap", header: "Level 1 OLAP",
+      style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
+      cellTitle: (row) => row.level1_olap || "",
+      render: (row) => row.level1_olap || <span style={{ color: "#bbb" }}>—</span>,
+    },
+    {
+      key: "level2_olap", header: "Level 2 OLAP",
+      style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
+      cellTitle: (row) => row.level2_olap || "",
+      render: (row) => row.level2_olap || <span style={{ color: "#bbb" }}>—</span>,
+    },
+    {
+      key: "_status", header: "Активна",
+      render: (row) => (
+        <span className={row.is_active ? "status active" : "status inactive"}>
+          {row.is_active ? "Активна" : "Неактивна"}
+        </span>
+      ),
+    },
+    {
+      key: "_actions", header: "Дії",
+      thStyle: { textAlign: "center" },
+      style:   { textAlign: "center", whiteSpace: "nowrap" },
+      render: (row) => (
+        <>
+          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
+          <button className="icon-btn delete" onClick={() => alert("Деактивацію підключимо наступним пакетом")}>×</button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <>
-      <section className="content-card">
-        <div className="card-top">
-          <div className="card-title-block">
-            <h2>Статті PnL</h2>
-            <p>Довідник статей, які використовуються у PnL-моделі.</p>
-          </div>
-
-          <div className="actions-row">
-            <input
-              className="search"
-              placeholder="Пошук статті..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-
+      <DataCard
+        title="Статті PnL"
+        subtitle="Довідник статей, які використовуються у PnL-моделі."
+        actions={
+          <>
             <Button variant="secondary" onClick={() => setActivePage("articleImport")}>
               ⬇ Імпорт
             </Button>
-
             <Button variant="secondary" onClick={() => setActivePage("importSources", { tab: "articles" })}>
               🔗 Відповідність статей
             </Button>
-
             <Button variant="primary" onClick={openAddModal}>
               + Додати статтю
             </Button>
-          </div>
+          </>
+        }
+      >
+        {loadError && <div className="error-message">{loadError}</div>}
 
-          {loadError && <div className="error-message">{loadError}</div>}
-        </div>
+        <TableToolbar
+          filters={[{
+            key: "search", type: "search", label: "Пошук",
+            value: search, onChange: setSearch, placeholder: "Пошук статті...",
+          }]}
+        />
 
-        <div style={{ overflowX: "auto" }}>
-          <table className="data-table articles-table">
-            <thead>
-              <tr>
-                <th>ID статті</th>
-                <th>Назва статті</th>
-                <th>Тип</th>
-                <th>Level 1</th>
-                <th>Level 2</th>
-                <th>PnL ID</th>
-                <th>UUID статті</th>
-                <th>Елемент витрат</th>
-                <th>Компанія</th>
-                <th>Level 1 OLAP</th>
-                <th>Level 2 OLAP</th>
-                <th>Активна</th>
-                <th>Дії</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan="13" className="empty-row">
-                    Завантаження...
-                  </td>
-                </tr>
-              )}
-
-              {!isLoading && filteredArticles.length === 0 && (
-                <tr>
-                  <td colSpan="13" className="empty-row">
-                    Статей поки немає або нічого не знайдено.
-                  </td>
-                </tr>
-              )}
-
-              {filteredArticles.map((a) => (
-                <tr key={a.article_id}>
-                  <td style={{ fontFamily: "monospace", fontSize: 12 }}>{a.article_id}</td>
-                  <td>{a.article_name}</td>
-                  <td>
-                    <span className="badge">{a.article_type}</span>
-                  </td>
-                  <td>{a.level1}</td>
-                  <td>{a.level2}</td>
-                  <td>{a.pnl_id}</td>
-                  <td
-                    style={{ fontFamily: "monospace", fontSize: 11, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}
-                    title={a.uid_expense_article || ""}
-                  >
-                    {a.uid_expense_article || <span style={{ color: "#bbb" }}>—</span>}
-                  </td>
-                  <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }} title={a.expense_element || ""}>
-                    {a.expense_element || <span style={{ color: "#bbb" }}>—</span>}
-                  </td>
-                  <td style={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }} title={a.expense_company || ""}>
-                    {a.expense_company || <span style={{ color: "#bbb" }}>—</span>}
-                  </td>
-                  <td style={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }} title={a.level1_olap || ""}>
-                    {a.level1_olap || <span style={{ color: "#bbb" }}>—</span>}
-                  </td>
-                  <td style={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }} title={a.level2_olap || ""}>
-                    {a.level2_olap || <span style={{ color: "#bbb" }}>—</span>}
-                  </td>
-                  <td>
-                    <span className={a.is_active ? "status active" : "status inactive"}>
-                      {a.is_active ? "Активна" : "Неактивна"}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="icon-btn edit" onClick={() => openEditModal(a)}>
-                      ✎
-                    </button>
-                    <button
-                      className="icon-btn delete"
-                      onClick={() => alert("Деактивацію підключимо наступним пакетом")}
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <DataTable
+          columns={columns}
+          rows={filteredArticles}
+          rowKey="article_id"
+          loading={isLoading}
+          emptyMessage="Статей поки немає або нічого не знайдено."
+        />
+      </DataCard>
 
       {showModal && (
         <Modal
@@ -342,13 +342,34 @@ function ArticlesPage({ setActivePage }) {
               </div>
 
               <div className="form-field">
-                <label>Level 1</label>
-                <input name="level1" value={form.level1} onChange={handleChange} />
+                <label>Level 2</label>
+                <LevelCombobox
+                  options={level2Options}
+                  value={form.level2}
+                  onChange={(name) => setForm((f) => ({ ...f, level2: name }))}
+                  onSelect={(name) => setForm((f) => ({ ...f, level2: name, level1: "" }))}
+                  onAdd={handleAddLevel2}
+                  addLabel="у довідник Level 2"
+                  placeholder="Пошук або введіть Level 2..."
+                />
               </div>
 
               <div className="form-field">
-                <label>Level 2</label>
-                <input name="level2" value={form.level2} onChange={handleChange} />
+                <label>Level 1</label>
+                <LevelCombobox
+                  options={level1Options}
+                  value={form.level1}
+                  onChange={(name) => setForm((f) => ({ ...f, level1: name }))}
+                  onAdd={handleAddLevel1}
+                  disabled={!form.level2.trim() || !level2Valid}
+                  addLabel="у довідник Level 1"
+                  placeholder={!form.level2.trim() || !level2Valid ? "Спочатку оберіть Level 2" : "Пошук або введіть Level 1..."}
+                />
+                {form.level2.trim() && !level2Valid && (
+                  <div style={{ fontSize: 11, color: "#e67e22", marginTop: 4 }}>
+                    Спочатку оберіть або створіть Level 2
+                  </div>
+                )}
               </div>
 
               <div className="form-field full">
@@ -364,38 +385,22 @@ function ArticlesPage({ setActivePage }) {
 
               <div className="form-field">
                 <label>Елемент витрат</label>
-                <input
-                  name="expense_element"
-                  value={form.expense_element}
-                  onChange={handleChange}
-                />
+                <input name="expense_element" value={form.expense_element} onChange={handleChange} />
               </div>
 
               <div className="form-field">
                 <label>Компанія</label>
-                <input
-                  name="expense_company"
-                  value={form.expense_company}
-                  onChange={handleChange}
-                />
+                <input name="expense_company" value={form.expense_company} onChange={handleChange} />
               </div>
 
               <div className="form-field">
                 <label>Level 1 OLAP</label>
-                <input
-                  name="level1_olap"
-                  value={form.level1_olap}
-                  onChange={handleChange}
-                />
+                <input name="level1_olap" value={form.level1_olap} onChange={handleChange} />
               </div>
 
               <div className="form-field">
                 <label>Level 2 OLAP</label>
-                <input
-                  name="level2_olap"
-                  value={form.level2_olap}
-                  onChange={handleChange}
-                />
+                <input name="level2_olap" value={form.level2_olap} onChange={handleChange} />
               </div>
 
               {editArticleId && (
@@ -430,15 +435,6 @@ function ArticlesPage({ setActivePage }) {
           </form>
         </Modal>
       )}
-
-      <style>{`
-        .articles-table th,
-        .articles-table td {
-          font-size: 12px;
-          padding: 6px 8px;
-          white-space: nowrap;
-        }
-      `}</style>
     </>
   );
 }

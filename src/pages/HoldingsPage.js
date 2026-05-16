@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
+import DataCard from "../components/layout/DataCard";
+import DataTable from "../components/table/DataTable";
+import TableToolbar from "../components/table/TableToolbar";
 
 import {
   getHoldings,
@@ -11,27 +14,19 @@ import {
 } from "../api/holdingsApi";
 
 function HoldingsPage({ setActivePage }) {
-  const [holdings, setHoldings] = useState([]);
-  const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
+  const [holdings,      setHoldings]      = useState([]);
+  const [search,        setSearch]        = useState("");
+  const [showModal,     setShowModal]     = useState(false);
   const [editHoldingId, setEditHoldingId] = useState(null);
 
-  const emptyForm = {
-    holding_id: "",
-    holding_name: "",
-    is_active: true,
-  };
-
+  const emptyForm = { holding_id: "", holding_name: "", is_active: true };
   const [form, setForm] = useState(emptyForm);
 
-  useEffect(() => {
-    loadHoldings();
-  }, []);
+  useEffect(() => { loadHoldings(); }, []);
 
   const loadHoldings = async () => {
     try {
-      const data = await getHoldings();
-      setHoldings(data);
+      setHoldings(await getHoldings());
     } catch (err) {
       console.error("Помилка завантаження холдингів:", err);
       alert("Помилка завантаження холдингів");
@@ -47,31 +42,23 @@ function HoldingsPage({ setActivePage }) {
   const openEditModal = (holding) => {
     setEditHoldingId(holding.holding_id);
     setForm({
-      holding_id: holding.holding_id || "",
+      holding_id:   holding.holding_id   || "",
       holding_name: holding.holding_name || "",
-      is_active: holding.is_active ?? true,
+      is_active:    holding.is_active    ?? true,
     });
     setShowModal(true);
   };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm({
-      ...form,
-      [name]: type === "checkbox" ? checked : value,
-    });
+    setForm({ ...form, [name]: type === "checkbox" ? checked : value });
   };
 
   const saveHolding = async (e) => {
     e.preventDefault();
-
     try {
-      if (editHoldingId) {
-        await updateHolding(editHoldingId, form);
-      } else {
-        await createHolding(form);
-      }
-
+      if (editHoldingId) { await updateHolding(editHoldingId, form); }
+      else               { await createHolding(form); }
       setShowModal(false);
       setEditHoldingId(null);
       setForm(emptyForm);
@@ -83,14 +70,7 @@ function HoldingsPage({ setActivePage }) {
   };
 
   const handleDeactivate = async (holding) => {
-    const confirmed = window.confirm(
-      `Деактивувати холдинг ${holding.holding_id}?`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+    if (!window.confirm(`Деактивувати холдинг ${holding.holding_id}?`)) return;
     try {
       await deactivateHolding(holding.holding_id);
       await loadHoldings();
@@ -100,76 +80,55 @@ function HoldingsPage({ setActivePage }) {
     }
   };
 
-  const filteredHoldings = holdings.filter((item) =>
+  const filtered = holdings.filter((item) =>
     `${item.holding_id} ${item.holding_name} ${item.is_active ? "активний" : "неактивний"}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
+      .toLowerCase().includes(search.toLowerCase())
   );
+
+  const columns = [
+    { key: "holding_id",   header: "ID холдингу"    },
+    { key: "holding_name", header: "Назва холдингу" },
+    {
+      key: "_status", header: "Активний",
+      render: (row) => (
+        <span className={row.is_active ? "status active" : "status inactive"}>
+          {row.is_active ? "Активний" : "Неактивний"}
+        </span>
+      ),
+    },
+    {
+      key: "_actions", header: "Дії",
+      thStyle: { textAlign: "center" },
+      style:   { textAlign: "center", whiteSpace: "nowrap" },
+      render: (row) => (
+        <>
+          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
+          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <>
-      <section className="content-card">
-        <div className="card-top">
-          <div className="card-title-block">
-            <h2>Холдинги</h2>
-            <p>Довідник холдингів для системи планування.</p>
-          </div>
-
-          <div className="actions-row">
-            <input
-              className="search"
-              placeholder="Пошук холдингу..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-
-            <Button variant="primary" onClick={openAddModal}>
-              + Додати холдинг
-            </Button>
-          </div>
-        </div>
-
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>ID холдингу</th>
-              <th>Назва холдингу</th>
-              <th>Активний</th>
-              <th>Дії</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredHoldings.length === 0 && (
-              <tr>
-                <td colSpan="4" className="empty-row">
-                  Холдингів поки немає або нічого не знайдено.
-                </td>
-              </tr>
-            )}
-
-            {filteredHoldings.map((item) => (
-              <tr key={item.holding_id}>
-                <td>{item.holding_id}</td>
-                <td>{item.holding_name}</td>
-                <td>
-                  <span className={item.is_active ? "status active" : "status inactive"}>
-                    {item.is_active ? "Активний" : "Неактивний"}
-                  </span>
-                </td>
-                <td>
-                  <button className="icon-btn edit" onClick={() => openEditModal(item)}>
-                    ✎
-                  </button>
-                  <button className="icon-btn delete" onClick={() => handleDeactivate(item)}>
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <DataCard
+        title="Холдинги"
+        subtitle="Довідник холдингів для системи планування."
+        actions={<Button variant="primary" onClick={openAddModal}>+ Додати холдинг</Button>}
+      >
+        <TableToolbar
+          filters={[{
+            key: "search", type: "search", label: "Пошук",
+            value: search, onChange: setSearch, placeholder: "Пошук холдингу...",
+          }]}
+        />
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey="holding_id"
+          emptyMessage="Холдингів поки немає або нічого не знайдено."
+        />
+      </DataCard>
 
       {showModal && (
         <Modal
@@ -181,14 +140,9 @@ function HoldingsPage({ setActivePage }) {
               {editHoldingId && (
                 <div className="form-field">
                   <label>ID холдингу</label>
-                  <input
-                    name="holding_id"
-                    value={form.holding_id}
-                    readOnly
-                  />
+                  <input name="holding_id" value={form.holding_id} readOnly />
                 </div>
               )}
-
               <div className="form-field full">
                 <label>Назва холдингу *</label>
                 <input
@@ -198,7 +152,6 @@ function HoldingsPage({ setActivePage }) {
                   required
                 />
               </div>
-
               {editHoldingId && (
                 <div className="form-field checkbox-field">
                   <label>
@@ -213,14 +166,9 @@ function HoldingsPage({ setActivePage }) {
                 </div>
               )}
             </div>
-
             <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setShowModal(false)}>
-                Скасувати
-              </Button>
-              <Button variant="primary" type="submit">
-                Зберегти
-              </Button>
+              <Button variant="secondary" onClick={() => setShowModal(false)}>Скасувати</Button>
+              <Button variant="primary" type="submit">Зберегти</Button>
             </div>
           </form>
         </Modal>

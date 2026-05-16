@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
+import DataCard from "../components/layout/DataCard";
+import DataTable from "../components/table/DataTable";
+import TableToolbar from "../components/table/TableToolbar";
 
 import {
   getSources,
@@ -11,28 +14,19 @@ import {
 } from "../api/sourcesApi";
 
 function SourcesPage({ setActivePage }) {
-  const [sources, setSources] = useState([]);
-  const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
+  const [sources,      setSources]      = useState([]);
+  const [search,       setSearch]       = useState("");
+  const [showModal,    setShowModal]    = useState(false);
   const [editSourceId, setEditSourceId] = useState(null);
 
-  const emptyForm = {
-    source_id: "",
-    source_name: "",
-    source_type: "",
-    is_active: true,
-  };
-
+  const emptyForm = { source_id: "", source_name: "", source_type: "", is_active: true };
   const [form, setForm] = useState(emptyForm);
 
-  useEffect(() => {
-    loadSources();
-  }, []);
+  useEffect(() => { loadSources(); }, []);
 
   const loadSources = async () => {
     try {
-      const data = await getSources();
-      setSources(data);
+      setSources(await getSources());
     } catch (err) {
       console.error("Помилка завантаження джерел:", err);
       alert("Помилка завантаження джерел");
@@ -48,32 +42,24 @@ function SourcesPage({ setActivePage }) {
   const openEditModal = (source) => {
     setEditSourceId(source.source_id);
     setForm({
-      source_id: source.source_id || "",
+      source_id:   source.source_id   || "",
       source_name: source.source_name || "",
       source_type: source.source_type || "",
-      is_active: source.is_active ?? true,
+      is_active:   source.is_active   ?? true,
     });
     setShowModal(true);
   };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm({
-      ...form,
-      [name]: type === "checkbox" ? checked : value,
-    });
+    setForm({ ...form, [name]: type === "checkbox" ? checked : value });
   };
 
   const saveSource = async (e) => {
     e.preventDefault();
-
     try {
-      if (editSourceId) {
-        await updateSource(editSourceId, form);
-      } else {
-        await createSource(form);
-      }
-
+      if (editSourceId) { await updateSource(editSourceId, form); }
+      else              { await createSource(form); }
       setShowModal(false);
       setEditSourceId(null);
       setForm(emptyForm);
@@ -85,14 +71,7 @@ function SourcesPage({ setActivePage }) {
   };
 
   const handleDeactivate = async (source) => {
-    const confirmed = window.confirm(
-      `Деактивувати джерело ${source.source_id}?`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+    if (!window.confirm(`Деактивувати джерело ${source.source_id}?`)) return;
     try {
       await deactivateSource(source.source_id);
       await loadSources();
@@ -102,78 +81,56 @@ function SourcesPage({ setActivePage }) {
     }
   };
 
-  const filteredSources = sources.filter((item) =>
+  const filtered = sources.filter((item) =>
     `${item.source_id} ${item.source_name} ${item.source_type} ${item.is_active ? "активний" : "неактивний"}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
+      .toLowerCase().includes(search.toLowerCase())
   );
+
+  const columns = [
+    { key: "source_id",   header: "ID джерела"    },
+    { key: "source_name", header: "Назва джерела" },
+    { key: "source_type", header: "Тип джерела"   },
+    {
+      key: "_status", header: "Активний",
+      render: (row) => (
+        <span className={row.is_active ? "status active" : "status inactive"}>
+          {row.is_active ? "Активний" : "Неактивний"}
+        </span>
+      ),
+    },
+    {
+      key: "_actions", header: "Дії",
+      thStyle: { textAlign: "center" },
+      style:   { textAlign: "center", whiteSpace: "nowrap" },
+      render: (row) => (
+        <>
+          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
+          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <>
-      <section className="content-card">
-        <div className="card-top">
-          <div className="card-title-block">
-            <h2>Джерела</h2>
-            <p>Довідник джерел даних для системи планування.</p>
-          </div>
-
-          <div className="actions-row">
-            <input
-              className="search"
-              placeholder="Пошук джерела..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-
-            <Button variant="primary" onClick={openAddModal}>
-              + Додати джерело
-            </Button>
-          </div>
-        </div>
-
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>ID джерела</th>
-              <th>Назва джерела</th>
-              <th>Тип джерела</th>
-              <th>Активний</th>
-              <th>Дії</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredSources.length === 0 && (
-              <tr>
-                <td colSpan="5" className="empty-row">
-                  Джерел поки немає або нічого не знайдено.
-                </td>
-              </tr>
-            )}
-
-            {filteredSources.map((item) => (
-              <tr key={item.source_id}>
-                <td>{item.source_id}</td>
-                <td>{item.source_name}</td>
-                <td>{item.source_type}</td>
-                <td>
-                  <span className={item.is_active ? "status active" : "status inactive"}>
-                    {item.is_active ? "Активний" : "Неактивний"}
-                  </span>
-                </td>
-                <td>
-                  <button className="icon-btn edit" onClick={() => openEditModal(item)}>
-                    ✎
-                  </button>
-                  <button className="icon-btn delete" onClick={() => handleDeactivate(item)}>
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <DataCard
+        title="Джерела"
+        subtitle="Довідник джерел даних для системи планування."
+        actions={<Button variant="primary" onClick={openAddModal}>+ Додати джерело</Button>}
+      >
+        <TableToolbar
+          filters={[{
+            key: "search", type: "search", label: "Пошук",
+            value: search, onChange: setSearch, placeholder: "Пошук джерела...",
+          }]}
+        />
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey="source_id"
+          emptyMessage="Джерел поки немає або нічого не знайдено."
+        />
+      </DataCard>
 
       {showModal && (
         <Modal
@@ -185,14 +142,9 @@ function SourcesPage({ setActivePage }) {
               {editSourceId && (
                 <div className="form-field">
                   <label>ID джерела</label>
-                  <input
-                    name="source_id"
-                    value={form.source_id}
-                    readOnly
-                  />
+                  <input name="source_id" value={form.source_id} readOnly />
                 </div>
               )}
-
               <div className="form-field full">
                 <label>Назва джерела *</label>
                 <input
@@ -202,7 +154,6 @@ function SourcesPage({ setActivePage }) {
                   required
                 />
               </div>
-
               <div className="form-field full">
                 <label>Тип джерела</label>
                 <input
@@ -212,7 +163,6 @@ function SourcesPage({ setActivePage }) {
                   placeholder="Наприклад: Google Sheets, Excel, API"
                 />
               </div>
-
               {editSourceId && (
                 <div className="form-field checkbox-field">
                   <label>
@@ -227,14 +177,9 @@ function SourcesPage({ setActivePage }) {
                 </div>
               )}
             </div>
-
             <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setShowModal(false)}>
-                Скасувати
-              </Button>
-              <Button variant="primary" type="submit">
-                Зберегти
-              </Button>
+              <Button variant="secondary" onClick={() => setShowModal(false)}>Скасувати</Button>
+              <Button variant="primary" type="submit">Зберегти</Button>
             </div>
           </form>
         </Modal>

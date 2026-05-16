@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
+import DataCard from "../components/layout/DataCard";
+import DataTable from "../components/table/DataTable";
+import TableToolbar from "../components/table/TableToolbar";
 
 import {
   getRegions,
@@ -11,27 +14,19 @@ import {
 } from "../api/regionsApi";
 
 function RegionsPage({ setActivePage }) {
-  const [regions, setRegions] = useState([]);
-  const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
+  const [regions,      setRegions]      = useState([]);
+  const [search,       setSearch]       = useState("");
+  const [showModal,    setShowModal]    = useState(false);
   const [editRegionId, setEditRegionId] = useState(null);
 
-  const emptyForm = {
-    region_id: "",
-    region_name: "",
-    is_active: true,
-  };
-
+  const emptyForm = { region_id: "", region_name: "", is_active: true };
   const [form, setForm] = useState(emptyForm);
 
-  useEffect(() => {
-    loadAllData();
-  }, []);
+  useEffect(() => { loadAllData(); }, []);
 
   const loadAllData = async () => {
     try {
-      const regData = await getRegions();
-      setRegions(regData);
+      setRegions(await getRegions());
     } catch (err) {
       console.error("Помилка завантаження даних:", err);
       alert("Помилка завантаження даних");
@@ -47,31 +42,23 @@ function RegionsPage({ setActivePage }) {
   const openEditModal = (region) => {
     setEditRegionId(region.region_id);
     setForm({
-      region_id: region.region_id || "",
+      region_id:   region.region_id   || "",
       region_name: region.region_name || "",
-      is_active: region.is_active ?? true,
+      is_active:   region.is_active   ?? true,
     });
     setShowModal(true);
   };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm({
-      ...form,
-      [name]: type === "checkbox" ? checked : value,
-    });
+    setForm({ ...form, [name]: type === "checkbox" ? checked : value });
   };
 
   const saveRegion = async (e) => {
     e.preventDefault();
-
     try {
-      if (editRegionId) {
-        await updateRegion(editRegionId, form);
-      } else {
-        await createRegion(form);
-      }
-
+      if (editRegionId) { await updateRegion(editRegionId, form); }
+      else              { await createRegion(form); }
       setShowModal(false);
       setEditRegionId(null);
       setForm(emptyForm);
@@ -83,14 +70,7 @@ function RegionsPage({ setActivePage }) {
   };
 
   const handleDeactivate = async (region) => {
-    const confirmed = window.confirm(
-      `Деактивувати регіон ${region.region_id}?`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+    if (!window.confirm(`Деактивувати регіон ${region.region_id}?`)) return;
     try {
       await deactivateRegion(region.region_id);
       await loadAllData();
@@ -100,76 +80,55 @@ function RegionsPage({ setActivePage }) {
     }
   };
 
-  const filteredRegions = regions.filter((item) =>
+  const filtered = regions.filter((item) =>
     `${item.region_id} ${item.region_name} ${item.is_active ? "активний" : "неактивний"}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
+      .toLowerCase().includes(search.toLowerCase())
   );
+
+  const columns = [
+    { key: "region_id",   header: "ID регіону"    },
+    { key: "region_name", header: "Назва регіону" },
+    {
+      key: "_status", header: "Активний",
+      render: (row) => (
+        <span className={row.is_active ? "status active" : "status inactive"}>
+          {row.is_active ? "Активний" : "Неактивний"}
+        </span>
+      ),
+    },
+    {
+      key: "_actions", header: "Дії",
+      thStyle: { textAlign: "center" },
+      style:   { textAlign: "center", whiteSpace: "nowrap" },
+      render: (row) => (
+        <>
+          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
+          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <>
-      <section className="content-card">
-        <div className="card-top">
-          <div className="card-title-block">
-            <h2>Регіони</h2>
-            <p>Довідник регіонів для системи планування.</p>
-          </div>
-
-          <div className="actions-row">
-            <input
-              className="search"
-              placeholder="Пошук регіону..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-
-            <Button variant="primary" onClick={openAddModal}>
-              + Додати регіон
-            </Button>
-          </div>
-        </div>
-
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>ID регіону</th>
-              <th>Назва регіону</th>
-              <th>Активний</th>
-              <th>Дії</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredRegions.length === 0 && (
-              <tr>
-                <td colSpan="4" className="empty-row">
-                  Регіонів поки немає або нічого не знайдено.
-                </td>
-              </tr>
-            )}
-
-            {filteredRegions.map((item) => (
-              <tr key={item.region_id}>
-                <td>{item.region_id}</td>
-                <td>{item.region_name}</td>
-                  <td>
-                  <span className={item.is_active ? "status active" : "status inactive"}>
-                    {item.is_active ? "Активний" : "Неактивний"}
-                  </span>
-                </td>
-                <td>
-                  <button className="icon-btn edit" onClick={() => openEditModal(item)}>
-                    ✎
-                  </button>
-                  <button className="icon-btn delete" onClick={() => handleDeactivate(item)}>
-                    ×
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <DataCard
+        title="Регіони"
+        subtitle="Довідник регіонів для системи планування."
+        actions={<Button variant="primary" onClick={openAddModal}>+ Додати регіон</Button>}
+      >
+        <TableToolbar
+          filters={[{
+            key: "search", type: "search", label: "Пошук",
+            value: search, onChange: setSearch, placeholder: "Пошук регіону...",
+          }]}
+        />
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey="region_id"
+          emptyMessage="Регіонів поки немає або нічого не знайдено."
+        />
+      </DataCard>
 
       {showModal && (
         <Modal
@@ -181,14 +140,9 @@ function RegionsPage({ setActivePage }) {
               {editRegionId && (
                 <div className="form-field">
                   <label>ID регіону</label>
-                  <input
-                    name="region_id"
-                    value={form.region_id}
-                    readOnly
-                  />
+                  <input name="region_id" value={form.region_id} readOnly />
                 </div>
               )}
-
               <div className="form-field full">
                 <label>Назва регіону *</label>
                 <input
@@ -198,7 +152,6 @@ function RegionsPage({ setActivePage }) {
                   required
                 />
               </div>
-
               {editRegionId && (
                 <div className="form-field checkbox-field">
                   <label>
@@ -213,14 +166,9 @@ function RegionsPage({ setActivePage }) {
                 </div>
               )}
             </div>
-
             <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setShowModal(false)}>
-                Скасувати
-              </Button>
-              <Button variant="primary" type="submit">
-                Зберегти
-              </Button>
+              <Button variant="secondary" onClick={() => setShowModal(false)}>Скасувати</Button>
+              <Button variant="primary" type="submit">Зберегти</Button>
             </div>
           </form>
         </Modal>
