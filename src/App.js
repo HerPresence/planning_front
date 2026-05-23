@@ -28,6 +28,7 @@ import RolesPage from "./pages/RolesPage";
 import PermissionsPage from "./pages/PermissionsPage";
 import AuditLogPage from "./pages/AuditLogPage";
 import BrandsPage from "./pages/BrandsPage";
+import ImportDataPage from "./pages/ImportDataPage";
 
 function AppContent() {
   const { currentUser, loading, logout, forceChangePassword } = useAuth();
@@ -97,6 +98,7 @@ function AppContent() {
       case "permissions":    return <PermissionsPage />;
       case "auditLog":       return <AuditLogPage />;
       case "brands":         return <BrandsPage />;
+      case "importData":     return <ImportDataPage />;
 
       default:
         return (
@@ -130,6 +132,7 @@ function AppContent() {
       case "permissions":    return "Права доступу";
       case "auditLog":       return "Журнал дій";
       case "brands":         return "Бренди";
+      case "importData":     return "Імпорт даних";
       default:               return "Система планування";
     }
   };

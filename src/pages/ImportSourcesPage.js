@@ -498,6 +498,9 @@ function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourc
                   onChange={(e) => setSourceForm({ ...sourceForm, import_type_code: e.target.value })}
                 >
                   <option value="">— не вказано —</option>
+                  <option value="departments">Підрозділи</option>
+                  <option value="brands">Бренди / Номенклатурні групи</option>
+                  <option value="articles">Статті PnL</option>
                   <option value="sales_fact">Факт продажів (товарооборот)</option>
                   <option value="pnl_plan">PnL — План</option>
                   <option value="pnl_fact">PnL — Факт</option>

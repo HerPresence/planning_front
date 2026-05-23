@@ -62,6 +62,7 @@ function Sidebar({ activePage, setActivePage }) {
     item("cashflow",      "💰 БДДС"),
     item("pnlData",       "📊 План / Факт PnL"),
     item("pnlImport",     "📥 Імпорт PnL"),
+    item("importData",    "📂 Імпорт даних"),
     item("factTurnover",  "🛒 Факт продажів"),
     item("budgets",       "📦 Бюджети витрат"),
   ].filter(Boolean);

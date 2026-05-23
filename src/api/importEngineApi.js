@@ -31,3 +31,6 @@ export const getFactTurnover = (params = {}) =>
 
 export const stagingBulkUpdate = (batchId, payload) =>
   axios.post(`${BASE}/staging/${batchId}/bulk-update`, payload).then(r => r.data);
+
+export const rollbackBatch = (batchId) =>
+  axios.post(`${BASE}/batches/${batchId}/rollback`).then(r => r.data);
