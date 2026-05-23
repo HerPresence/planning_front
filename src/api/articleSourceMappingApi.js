@@ -4,7 +4,13 @@ import { API_BASE_URL } from "./apiConfig";
 const API_URL = `${API_BASE_URL}/article-source-mapping`;
 
 export async function getStagedArticles(params = {}) {
-  const res = await axios.get(`${API_URL}/staged`, { params });
+  const p = { ...params };
+  if (!p.level1)            delete p.level1;
+  if (!p.level2)            delete p.level2;
+  if (!p.master_level1)     delete p.master_level1;
+  if (!p.master_level2)     delete p.master_level2;
+  if (!p.pnl_structure_id)  delete p.pnl_structure_id;
+  const res = await axios.get(`${API_URL}/staged`, { params: p });
   return res.data;
 }
 
@@ -45,6 +51,26 @@ export async function previewAutoBindByUUID(sourceId) {
 
 export async function confirmUUIDBindings(bindings) {
   const res = await axios.post(`${API_URL}/confirm-uuid-bindings`, { bindings });
+  return res.data;
+}
+
+export async function bulkFillPreview({ filters, field, value }) {
+  const res = await axios.post(`${API_URL}/bulk-fill-preview`, { filters, field, value });
+  return res.data;
+}
+
+export async function bulkFillApply({ filters, field, value, confirm }) {
+  const res = await axios.post(`${API_URL}/bulk-fill`, { filters, field, value, confirm });
+  return res.data;
+}
+
+export async function bulkCreatePreview({ filters }) {
+  const res = await axios.post(`${API_URL}/bulk-create-preview`, { filters });
+  return res.data;
+}
+
+export async function bulkCreateApply({ filters, confirm }) {
+  const res = await axios.post(`${API_URL}/bulk-create`, { filters, confirm });
   return res.data;
 }
 

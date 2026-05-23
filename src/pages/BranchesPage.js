@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -15,6 +16,8 @@ import {
 import { getRegions } from "../api/regionsApi";
 
 function BranchesPage({ setActivePage }) {
+  const { canEdit } = usePagePermission("branches");
+
   const [branches,     setBranches]     = useState([]);
   const [regions,      setRegions]      = useState([]);
   const [search,       setSearch]       = useState("");
@@ -114,8 +117,8 @@ function BranchesPage({ setActivePage }) {
       style:   { textAlign: "center", whiteSpace: "nowrap" },
       render: (row) => (
         <>
-          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
-          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
+          {canEdit && <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>}
         </>
       ),
     },
@@ -126,7 +129,7 @@ function BranchesPage({ setActivePage }) {
       <DataCard
         title="Філії"
         subtitle="Довідник філій для системи планування."
-        actions={<Button variant="primary" onClick={openAddModal}>+ Додати філію</Button>}
+        actions={canEdit && <Button variant="primary" onClick={openAddModal}>+ Додати філію</Button>}
       >
         <TableToolbar
           filters={[{

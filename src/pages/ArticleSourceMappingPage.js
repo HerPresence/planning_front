@@ -19,6 +19,8 @@ import {
   confirmUUIDBindings,
 } from "../api/articleSourceMappingApi";
 import { getArticles, createArticle, updateArticle } from "../api/articlesApi";
+import BulkFillModal from "./BulkFillModal";
+import BulkCreateModal from "./BulkCreateModal";
 import { getPnlStructures } from "../api/pnlStructureApi";
 import { getLevel2, createLevel2, getLevel1, createLevel1 } from "../api/pnlLevelsApi";
 
@@ -141,10 +143,12 @@ function CreateFromStagingModal({ stagingRow, pnlStructures, onCreated, onClose 
   const [form, setForm] = useState(() => ({
     ...emptyCreateForm,
     article_id:          stagingRow.source_article_id   || "",
-    article_name:        stagingRow.source_article_name || "",
-    article_type:        stagingRow.source_article_type || "",
-    level1:              stagingRow.source_level1        || "",
-    level2:              stagingRow.source_level2        || "",
+    // defaults from bulk-fill take priority over raw staging values
+    article_name:        stagingRow.default_master_article_name || stagingRow.source_article_name || "",
+    article_type:        stagingRow.default_article_type        || stagingRow.source_article_type || "",
+    level1:              stagingRow.default_master_level1       || stagingRow.source_level1        || "",
+    level2:              stagingRow.default_master_level2       || stagingRow.source_level2        || "",
+    pnl_id:              stagingRow.default_pnl_id ? String(stagingRow.default_pnl_id) : "",
     uid_expense_article: stagingRow.uid_expense_article  || "",
     expense_element:     stagingRow.expense_element      || "",
     expense_company:     stagingRow.expense_company      || "",
@@ -381,7 +385,7 @@ function EditArticleModal({ articleId, pnlStructures, onSaved, onClose }) {
     setSaving(true);
     try {
       await updateArticle(articleId, form);
-      onSaved(articleId, form.article_name);
+      onSaved(articleId, form);
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setError(
@@ -523,11 +527,23 @@ function MasterCell({ row, masters, saving, onBind }) {
   );
 }
 
+// ── Eligible-row check (pending + all required staging defaults present) ──────
+
+function isEligible(row) {
+  if (row.master_article_id || row.mapping_status === "rejected") return false;
+  return !!(
+    (row.default_article_type || row.source_article_type) &&
+    row.default_pnl_id &&
+    (row.default_master_article_name || row.source_article_name)
+  );
+}
+
 // ── Actions cell renderer ─────────────────────────────────────────────────────
 
 function ActionsCell({ row, saving, onClear, onReject, onCreate, onEdit }) {
   const isMapped = !!row.master_article_id;
   const isSaving = saving[`${row.source_id}__${row.source_article_id}`];
+  const eligible = isEligible(row);
 
   if (isMapped) {
     return (
@@ -554,8 +570,13 @@ function ActionsCell({ row, saving, onClear, onReject, onCreate, onEdit }) {
           Відхилити
         </button>
       )}
-      <button className="asm-btn asm-btn-create" onClick={() => onCreate(row)} disabled={isSaving}>
-        + Створити
+      <button
+        className={`asm-btn ${eligible ? "asm-btn-create-ready" : "asm-btn-create"}`}
+        onClick={() => onCreate(row)}
+        disabled={isSaving}
+        title={eligible ? "Всі поля заповнено — готово до створення" : "Створити master-статтю"}
+      >
+        {eligible ? "✓ Створити" : "+ Створити"}
       </button>
     </div>
   );
@@ -574,6 +595,11 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
   const [filterSource,  setFilterSource]  = useState(String(initialSourceId || ""));
   const [filterCompany, setFilterCompany] = useState("");
   const [filterStatus,  setFilterStatus]  = useState("all");
+  const [filterLevel1,       setFilterLevel1]       = useState("");
+  const [filterLevel2,       setFilterLevel2]       = useState("");
+  const [filterMasterLevel1, setFilterMasterLevel1] = useState("");
+  const [filterMasterLevel2, setFilterMasterLevel2] = useState("");
+  const [filterPnl,     setFilterPnl]     = useState("");
   const [searchInput,   setSearchInput]   = useState("");
   const [search,        setSearch]        = useState("");
 
@@ -582,18 +608,26 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
   const [pageSize, setPageSize] = useState(50);
 
   // ── data ──────────────────────────────────────────────────────────────────
-  const [rows,    setRows]    = useState([]);
-  const [total,   setTotal]   = useState(0);
-  const [kpi,     setKpi]     = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
-  const [saving,  setSaving]  = useState({});
+  const [rows,         setRows]         = useState([]);
+  const [total,        setTotal]        = useState(0);
+  const [kpi,          setKpi]          = useState(null);
+  const [level1Values,       setLevel1Values]       = useState([]);
+  const [level2Values,       setLevel2Values]       = useState([]);
+  const [masterLevel1Values, setMasterLevel1Values] = useState([]);
+  const [masterLevel2Values, setMasterLevel2Values] = useState([]);
+  const [pnlValues,          setPnlValues]          = useState([]);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [saving,       setSaving]       = useState({});
 
   // ── modals ────────────────────────────────────────────────────────────────
-  const [uuidPreview, setUuidPreview] = useState(null);
-  const [uuidLoading, setUuidLoading] = useState(false);
-  const [createModal, setCreateModal] = useState(null);
-  const [editModal,   setEditModal]   = useState(null); // master_article_id
+  const [uuidPreview,  setUuidPreview]  = useState(null);
+  const [uuidLoading,  setUuidLoading]  = useState(false);
+  const [createModal,  setCreateModal]  = useState(null);
+  const [editModal,    setEditModal]    = useState(null); // master_article_id
+  const [showBulkFill,   setShowBulkFill]   = useState(false);
+  const [showBulkCreate, setShowBulkCreate] = useState(false);
+  const [bulkSuccess,    setBulkSuccess]    = useState(null);
 
   // ── init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -622,23 +656,40 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
       if (filterCompany)          params.company         = filterCompany;
       if (filterStatus !== "all") params.mapping_status  = filterStatus;
       if (search)                 params.search          = search;
+      if (filterLevel1)           params.level1          = filterLevel1;
+      if (filterLevel2)           params.level2          = filterLevel2;
+      if (filterMasterLevel1)     params.master_level1      = filterMasterLevel1;
+      if (filterMasterLevel2)     params.master_level2      = filterMasterLevel2;
+      if (filterPnl)              params.pnl_structure_id   = filterPnl;
       const res = await getStagedArticles(params);
       setRows(res.rows || []);
       setTotal(res.total || 0);
       setKpi(res.kpi || null);
+      if (res.filters) {
+        setLevel1Values(res.filters.level1_values || []);
+        setLevel2Values(res.filters.level2_values || []);
+        setMasterLevel1Values(res.filters.master_level1_values || []);
+        setMasterLevel2Values(res.filters.master_level2_values || []);
+        setPnlValues(res.filters.pnl_structure_values || []);
+      }
     } catch {
       setError("Помилка завантаження даних");
     } finally {
       setLoading(false);
     }
-  }, [filterSource, filterCompany, filterStatus, search, page, pageSize]);
+  }, [filterSource, filterCompany, filterStatus, search, filterLevel1, filterLevel2, filterMasterLevel1, filterMasterLevel2, filterPnl, page, pageSize]);
 
   useEffect(() => { loadRows(); }, [loadRows]);
 
   // ── filter handlers ───────────────────────────────────────────────────────
-  const handleFilterSource  = (val) => { setFilterSource(val); setFilterCompany(""); setPage(1); };
-  const handleFilterCompany = (val) => { setFilterCompany(val); setPage(1); };
-  const handleFilterStatus  = (val) => { setFilterStatus(val);  setPage(1); };
+  const handleFilterSource       = (val) => { setFilterSource(val); setFilterCompany(""); setFilterLevel1(""); setFilterLevel2(""); setFilterMasterLevel1(""); setFilterMasterLevel2(""); setFilterPnl(""); setPage(1); };
+  const handleFilterCompany      = (val) => { setFilterCompany(val); setPage(1); };
+  const handleFilterStatus       = (val) => { setFilterStatus(val);  setPage(1); };
+  const handleFilterLevel1       = (val) => { setFilterLevel1(val); setPage(1); };
+  const handleFilterLevel2       = (val) => { setFilterLevel2(val); setPage(1); };
+  const handleFilterMasterLevel1 = (val) => { setFilterMasterLevel1(val); setPage(1); };
+  const handleFilterMasterLevel2 = (val) => { setFilterMasterLevel2(val); setPage(1); };
+  const handleFilterPnl          = (val) => { setFilterPnl(val); setPage(1); };
 
   // ── bind / clear / reject ─────────────────────────────────────────────────
   // freshMasters — pass when masters state may be stale (e.g. right after createArticle)
@@ -647,6 +698,7 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
     setSaving((s) => ({ ...s, [key]: true }));
     try {
       await bindStagedArticle(row.source_id, row.source_article_id, masterArticleId || null);
+      // Optimistic update for instant feedback, then reload for full data (pnl_structure etc.)
       const masterList = freshMasters || masters;
       const masterName = masterList.find((m) => m.article_id === masterArticleId)?.article_name || null;
       setRows((prev) =>
@@ -656,6 +708,7 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
             : r
         )
       );
+      await loadRows();
     } catch {
       setError("Помилка збереження прив'язки");
     } finally {
@@ -675,6 +728,7 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
             : r
         )
       );
+      await loadRows();
     } catch {
       setError("Помилка скидання прив'язки");
     } finally {
@@ -724,19 +778,35 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
     await loadRows();
   };
 
-  const handleArticleSaved = (articleId, newName) => {
+  const handleArticleSaved = async (articleId, form) => {
     setEditModal(null);
-    // Update master name in both rows and masters lists
+    // Optimistic update: reflect changes immediately in visible rows and masters dropdown
+    const pnlMatch = pnlValues.find((p) => String(p.id) === String(form.pnl_id));
     setRows((prev) =>
       prev.map((r) =>
-        r.master_article_id === articleId ? { ...r, master_article_name: newName } : r
+        r.master_article_id === articleId
+          ? {
+              ...r,
+              master_article_name: form.article_name,
+              master_level1:       form.level1       || null,
+              master_level2:       form.level2       || null,
+              master_article_type: form.article_type || null,
+              pnl_structure_id:    pnlMatch ? pnlMatch.id        : null,
+              pnl_structure_code:  pnlMatch ? pnlMatch.pnl_code  : null,
+              pnl_structure_name:  pnlMatch ? pnlMatch.pnl_name  : null,
+            }
+          : r
       )
     );
     setMasters((prev) =>
       prev.map((m) =>
-        m.article_id === articleId ? { ...m, article_name: newName } : m
+        m.article_id === articleId
+          ? { ...m, article_name: form.article_name, level1: form.level1, level2: form.level2, uid_expense_article: form.uid_expense_article }
+          : m
       )
     );
+    // Reload rows + KPI to pick up any server-side changes (no filter reset)
+    await loadRows();
   };
 
   // ── OLAP-source detection ─────────────────────────────────────────────────
@@ -768,14 +838,55 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
       style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
     },
     {
-      key: "_l1", header: "L1",
-      style: { maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" },
-      render: (row) => row.level1_olap || row.source_level1,
+      key: "_src_l1", header: "Source L1",
+      style: { maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", color: "var(--text-secondary)" },
+      cellTitle: (row) => row.level1_olap || row.source_level1 || "",
+      render: (row) => row.level1_olap || row.source_level1 || "—",
     },
     {
-      key: "_l2", header: "L2",
-      style: { maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" },
-      render: (row) => row.level2_olap || row.source_level2,
+      key: "_src_l2", header: "Source L2",
+      style: { maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", color: "var(--text-secondary)" },
+      cellTitle: (row) => row.level2_olap || row.source_level2 || "",
+      render: (row) => row.level2_olap || row.source_level2 || "—",
+    },
+    {
+      key: "_master_l1", header: "Master L1",
+      style: { maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 500 },
+      cellTitle: (row) => row.master_level1 || row.default_master_level1 || "",
+      render: (row) => row.master_level1
+        ? row.master_level1
+        : row.default_master_level1
+          ? <span className="draft-value">{row.default_master_level1}</span>
+          : "—",
+    },
+    {
+      key: "_master_l2", header: "Master L2",
+      style: { maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 500 },
+      cellTitle: (row) => row.master_level2 || row.default_master_level2 || "",
+      render: (row) => row.master_level2
+        ? row.master_level2
+        : row.default_master_level2
+          ? <span className="draft-value">{row.default_master_level2}</span>
+          : "—",
+    },
+    {
+      key: "_master_type", header: "Тип",
+      style: { maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis" },
+      render: (row) => row.master_article_type
+        ? row.master_article_type
+        : (row.default_article_type || row.source_article_type)
+          ? <span className="draft-value">{row.default_article_type || row.source_article_type}</span>
+          : "—",
+    },
+    {
+      key: "_pnl_structure", header: "PNL структура",
+      style: { maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" },
+      cellTitle: (row) => row.pnl_structure_id
+        ? `${row.pnl_structure_id} — ${row.pnl_structure_code || "—"} — ${row.pnl_structure_name || ""}`
+        : "",
+      render: (row) => row.pnl_structure_id
+        ? `${row.pnl_structure_id} — ${row.pnl_structure_code || "—"} — ${row.pnl_structure_name || ""}`
+        : "—",
     },
     {
       key: "mapping_status", header: "Статус",
@@ -846,17 +957,77 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
       ],
     },
     {
+      key: "level1", type: "select", label: "Source L1",
+      value: filterLevel1, onChange: handleFilterLevel1,
+      options: [
+        { value: "", label: "Всі Source L1" },
+        ...level1Values.map((v) => ({ value: v, label: v })),
+      ],
+    },
+    {
+      key: "level2", type: "select", label: "Source L2",
+      value: filterLevel2, onChange: handleFilterLevel2,
+      options: [
+        { value: "", label: "Всі Source L2" },
+        ...level2Values.map((v) => ({ value: v, label: v })),
+      ],
+    },
+    {
+      key: "master_level1", type: "select", label: "Master L1",
+      value: filterMasterLevel1, onChange: handleFilterMasterLevel1,
+      options: [
+        { value: "", label: "Всі Master L1" },
+        ...masterLevel1Values.map((v) => ({ value: v, label: v })),
+      ],
+    },
+    {
+      key: "master_level2", type: "select", label: "Master L2",
+      value: filterMasterLevel2, onChange: handleFilterMasterLevel2,
+      options: [
+        { value: "", label: "Всі Master L2" },
+        ...masterLevel2Values.map((v) => ({ value: v, label: v })),
+      ],
+    },
+    {
+      key: "pnl_structure", type: "select", label: "PNL структура",
+      value: filterPnl, onChange: handleFilterPnl,
+      options: [
+        { value: "", label: "Всі PNL структури" },
+        ...pnlValues.map((p) => ({
+          value: String(p.id),
+          label: `${p.id} — ${p.pnl_code || "—"} — ${p.pnl_name}`,
+        })),
+      ],
+    },
+    {
       key: "search", type: "search", label: "Пошук",
       value: searchInput, onChange: setSearchInput,
       placeholder: "ID або назва статті...",
     },
   ];
 
-  const emptyMsg = search || filterSource || filterCompany || filterStatus !== "all"
+  const emptyMsg = search || filterSource || filterCompany || filterStatus !== "all" || filterLevel1 || filterLevel2 || filterMasterLevel1 || filterMasterLevel2 || filterPnl
     ? "За вказаними фільтрами записів не знайдено."
     : "Staging-таблиця порожня. Спочатку виконайте «Імпорт статей» з OLAP-джерела.";
 
   // ── render ────────────────────────────────────────────────────────────────
+  const handleBulkSuccess = async (res) => {
+    setShowBulkFill(false);
+    const parts = [];
+    if (res.updated_masters > 0) parts.push(`${res.updated_masters} master-статей`);
+    if (res.updated_staging  > 0) parts.push(`${res.updated_staging} staging-рядків (дефолт)`);
+    setBulkSuccess(`Оновлено: ${parts.join(", ")} — ${res.field_label}: "${res.value}"`);
+    getMasterArticles().then(setMasters).catch(() => {});
+    await loadRows();
+  };
+
+  const handleBulkCreateSuccess = async (res) => {
+    setShowBulkCreate(false);
+    setBulkSuccess(`Створено master-статей: ${res.created ?? 0}, прив'язано: ${res.bound ?? 0}`);
+    getMasterArticles().then(setMasters).catch(() => {});
+    await loadRows();
+  };
+
   const uuidAction = showUuidButton ? [{
     label: uuidLoading ? "Пошук..." : "⚡ UUID-підбір",
     onClick: handleUUIDPreview,
@@ -864,12 +1035,32 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
     title: "Знайти збіги за UUID та запропонувати прив'язки",
   }] : [];
 
+  const bulkFillAction = [{
+    label: "Заповнити",
+    onClick: () => { setBulkSuccess(null); setShowBulkFill(true); },
+    disabled: loading,
+    title: "Масове заповнення полів master-статей за фільтром",
+  }];
+
+  const bulkCreateAction = [{
+    label: "Створити все",
+    onClick: () => { setBulkSuccess(null); setShowBulkCreate(true); },
+    disabled: loading,
+    title: "Масове створення master-статей для eligible рядків у фільтрі",
+  }];
+
   const tableContent = (
     <>
       {error && (
         <div className="error-message" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>{error}</span>
           <button onClick={() => setError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#c33", fontWeight: 700, fontSize: 16 }}>✕</button>
+        </div>
+      )}
+      {bulkSuccess && (
+        <div className="success-message" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{bulkSuccess}</span>
+          <button onClick={() => setBulkSuccess(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#155724", fontWeight: 700, fontSize: 16 }}>✕</button>
         </div>
       )}
 
@@ -881,14 +1072,18 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
           value: pageSize,
           onChange: (n) => { setPageSize(n); setPage(1); },
         }}
-        actions={uuidAction}
+        actions={[...uuidAction, ...bulkFillAction, ...bulkCreateAction]}
       />
 
       <DataTable
         columns={columns}
         rows={rows}
         rowKey={(row) => `${row.source_id}__${row.source_article_id}`}
-        rowClassName={(row) => !row.master_article_id && row.mapping_status !== "rejected" ? "row-pending" : ""}
+        rowClassName={(row) => {
+          if (isEligible(row)) return "row-eligible";
+          if (!row.master_article_id && row.mapping_status !== "rejected") return "row-pending";
+          return "";
+        }}
         loading={loading}
         emptyMessage={emptyMsg}
         pagination={{ page, pageSize, total, onChange: setPage }}
@@ -940,6 +1135,44 @@ function ArticleSourceMappingPage({ setActivePage, initialSourceId = "", asTab =
           pnlStructures={pnlStructures}
           onSaved={handleArticleSaved}
           onClose={() => setEditModal(null)}
+        />
+      )}
+
+      {showBulkFill && (
+        <BulkFillModal
+          filters={{
+            filterSource,
+            filterCompany,
+            filterStatus,
+            filterLevel1,
+            filterLevel2,
+            filterMasterLevel1,
+            filterMasterLevel2,
+            filterPnl,
+            search,
+          }}
+          sources={sources}
+          pnlStructures={pnlStructures}
+          onClose={() => setShowBulkFill(false)}
+          onSuccess={handleBulkSuccess}
+        />
+      )}
+
+      {showBulkCreate && (
+        <BulkCreateModal
+          filters={{
+            filterSource,
+            filterCompany,
+            filterStatus,
+            filterLevel1,
+            filterLevel2,
+            filterMasterLevel1,
+            filterMasterLevel2,
+            filterPnl,
+            search,
+          }}
+          onClose={() => setShowBulkCreate(false)}
+          onSuccess={handleBulkCreateSuccess}
         />
       )}
     </>

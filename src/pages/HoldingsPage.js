@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -14,6 +15,8 @@ import {
 } from "../api/holdingsApi";
 
 function HoldingsPage({ setActivePage }) {
+  const { canEdit } = usePagePermission("holdings");
+
   const [holdings,      setHoldings]      = useState([]);
   const [search,        setSearch]        = useState("");
   const [showModal,     setShowModal]     = useState(false);
@@ -102,8 +105,8 @@ function HoldingsPage({ setActivePage }) {
       style:   { textAlign: "center", whiteSpace: "nowrap" },
       render: (row) => (
         <>
-          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
-          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
+          {canEdit && <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>}
         </>
       ),
     },
@@ -114,7 +117,7 @@ function HoldingsPage({ setActivePage }) {
       <DataCard
         title="Холдинги"
         subtitle="Довідник холдингів для системи планування."
-        actions={<Button variant="primary" onClick={openAddModal}>+ Додати холдинг</Button>}
+        actions={canEdit && <Button variant="primary" onClick={openAddModal}>+ Додати холдинг</Button>}
       >
         <TableToolbar
           filters={[{

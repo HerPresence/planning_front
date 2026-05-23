@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
+import SalesFactImportTab from "./SalesFactImportTab";
 
 import Button from "../components/ui/Button";
+import Modal from "../components/ui/Modal";
 import SearchableSelect from "../components/ui/SearchableSelect";
+import DataCard from "../components/layout/DataCard";
+import KPIGrid from "../components/layout/KPIGrid";
+import DataTable from "../components/table/DataTable";
 import { getImportSources } from "../api/importSourcesApi";
 import {
   previewSource,
@@ -55,6 +61,8 @@ function extractUnmapped(errors, type) {
 
 // Single quick-mapping row
 function QuickMapRow({ item, options, getOptionValue, getOptionLabel, getSearchText, onSave, saving, onCreateArticle, isAutoSaved }) {
+  const { canEdit } = usePagePermission("pnlImport");
+
   const [selectedId, setSelectedId] = useState("");
   const [saved, setSaved] = useState(false);
   const [rowError, setRowError] = useState(null);
@@ -171,90 +179,88 @@ function CreateArticleModal({ item, sourceId, articleTypes, refArticles, pnlStru
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <div className="modal-header">
-          <h2>Нова стаття PnL</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
+    <Modal title="Нова стаття PnL" onClose={onClose}>
+      <div className="ext-context-row">
+        <span>Зовн. код: <strong>{item.ext_code || "—"}</strong></span>
+        <span>Зовн. назва: <strong>{item.ext_name || "—"}</strong></span>
+      </div>
+
+      {existingArticle && (
+        <div className="existing-warning">
+          ℹ Стаття з кодом «{item.ext_code}» вже існує ({existingArticle.article_name}).
+          При збереженні буде створено тільки маппінг.
         </div>
+      )}
 
-        <div className="ext-context-row">
-          <span>Зовн. код: <strong>{item.ext_code || "—"}</strong></span>
-          <span>Зовн. назва: <strong>{item.ext_name || "—"}</strong></span>
+      {error && <div className="error-message">{error}</div>}
+
+      <div className="form-grid">
+        <div className="form-field full">
+          <label>Назва статті *</label>
+          <input
+            value={form.article_name}
+            onChange={(e) => setForm({ ...form, article_name: e.target.value })}
+          />
         </div>
-
-        {existingArticle && (
-          <div className="existing-warning" style={{ marginBottom: 12 }}>
-            ℹ Стаття з кодом «{item.ext_code}» вже існує ({existingArticle.article_name}).
-            При збереженні буде створено тільки маппінг.
-          </div>
-        )}
-
-        {error && <div className="error-message">{error}</div>}
-
-        <div className="form-grid">
-          <div className="form-field full">
-            <label>Назва статті *</label>
-            <input
-              value={form.article_name}
-              onChange={(e) => setForm({ ...form, article_name: e.target.value })}
-            />
-          </div>
-          <div className="form-field">
-            <label>Тип статті</label>
-            <select value={form.article_type} onChange={(e) => setForm({ ...form, article_type: e.target.value })}>
-              <option value="">— не вказано —</option>
-              {articleTypes.map((t) => <option key={t} value={t}>{t}</option>)}
-              {articleTypes.length === 0 && (
-                <>
-                  <option value="Дохід">Дохід</option>
-                  <option value="Витрати">Витрати</option>
-                </>
-              )}
-            </select>
-          </div>
-          <div className="form-field">
-            <label>PnL ID *</label>
-            <SearchableSelect
-              options={pnlStructures}
-              value={form.pnl_id || ""}
-              onChange={(val) => { setForm({ ...form, pnl_id: val || null }); setPnlError(false); }}
-              getOptionValue={(p) => String(p.id)}
-              getOptionLabel={(p) => `${p.pnl_code || p.id} — ${p.pnl_name}`}
-              placeholder="-- Оберіть PnL структуру --"
-            />
-            {pnlError && (
-              <span style={{ color: "#c0392b", fontSize: 12, marginTop: 3 }}>
-                Оберіть структуру PnL
-              </span>
+        <div className="form-field">
+          <label>Тип статті</label>
+          <select value={form.article_type} onChange={(e) => setForm({ ...form, article_type: e.target.value })}>
+            <option value="">— не вказано —</option>
+            {articleTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+            {articleTypes.length === 0 && (
+              <>
+                <option value="Дохід">Дохід</option>
+                <option value="Витрати">Витрати</option>
+              </>
             )}
-          </div>
-          <div className="form-field">
-            <label>Level 1</label>
-            <input value={form.level1} onChange={(e) => setForm({ ...form, level1: e.target.value })} />
-          </div>
-          <div className="form-field">
-            <label>Level 2</label>
-            <input value={form.level2} onChange={(e) => setForm({ ...form, level2: e.target.value })} />
-          </div>
+          </select>
         </div>
-
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Скасувати</button>
-          <button
-            className="btn btn-primary"
-            onClick={doCreateAndMap}
-            disabled={saving || !canSubmit}
-          >
-            {saving ? "Збереження..." : "Створити статтю і маппінг"}
-          </button>
+        <div className="form-field">
+          <label>PnL ID *</label>
+          <SearchableSelect
+            options={pnlStructures}
+            value={form.pnl_id || ""}
+            onChange={(val) => { setForm({ ...form, pnl_id: val || null }); setPnlError(false); }}
+            getOptionValue={(p) => String(p.id)}
+            getOptionLabel={(p) => `${p.pnl_code || p.id} — ${p.pnl_name}`}
+            placeholder="-- Оберіть PnL структуру --"
+          />
+          {pnlError && (
+            <span className="field-error">Оберіть структуру PnL</span>
+          )}
+        </div>
+        <div className="form-field">
+          <label>Level 1</label>
+          <input value={form.level1} onChange={(e) => setForm({ ...form, level1: e.target.value })} />
+        </div>
+        <div className="form-field">
+          <label>Level 2</label>
+          <input value={form.level2} onChange={(e) => setForm({ ...form, level2: e.target.value })} />
         </div>
       </div>
-    </div>
+
+      <div className="modal-actions">
+        <Button variant="secondary" onClick={onClose} disabled={saving}>Скасувати</Button>
+        <Button
+          variant="primary"
+          onClick={doCreateAndMap}
+          disabled={saving || !canSubmit}
+        >
+          {saving ? "Збереження..." : "Створити статтю і маппінг"}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
+const IMPORT_TYPE_OPTIONS = [
+  { code: "pnl_plan",    label: "PnL — План",       desc: "Планові дані по статтях PnL",        icon: "📋" },
+  { code: "pnl_fact",    label: "PnL — Факт",        desc: "Фактичні дані по статтях PnL",       icon: "📊" },
+  { code: "sales_fact",  label: "Факт продажів",     desc: "Товарооборот з OLAP / SQL / Excel",  icon: "🛒" },
+];
+
 function PnlImportPage() {
+  const [importTypeCode, setImportTypeCode] = useState(null);
   const [sources, setSources] = useState([]);
   const [selectedSourceId, setSelectedSourceId] = useState("");
   const [selectedSource, setSelectedSource] = useState(null);
@@ -283,8 +289,8 @@ function PnlImportPage() {
   const [mappingSaved, setMappingSaved] = useState(false);
   const [savingMapping, setSavingMapping] = useState(false);
 
-  // import settings
-  const [importType, setImportType] = useState("plan");
+  // import settings — derived from top-level type selection
+  const importType = importTypeCode === "pnl_fact" ? "fact" : "plan";
   const [scenario, setScenario] = useState("");
   const [versionName, setVersionName] = useState("");
 
@@ -349,6 +355,19 @@ function PnlImportPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
     resetPreview();
     loadSavedMapping(id);
+  };
+
+  const handleTypeSelect = (code) => {
+    setImportTypeCode(code);
+    setSelectedSourceId("");
+    setSelectedSource(null);
+    setSheetUrl("");
+    setSheetName("");
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setScenario("");
+    setVersionName("");
+    resetPreview();
   };
 
   const resetPreview = () => {
@@ -595,14 +614,34 @@ function PnlImportPage() {
 
   return (
     <>
-      <section className="content-card">
-        <div className="card-top">
-          <div className="card-title-block">
-            <h2>Імпорт PnL</h2>
-            <p>Завантаження планових або фактичних даних з Google Sheets / Excel / CSV.</p>
-          </div>
+      {/* ── КРОК 0: Вибір типу імпорту ───────────────────────────────────── */}
+      <div className="import-type-selector">
+        <p className="import-type-heading">Що імпортуємо?</p>
+        <div className="import-type-grid">
+          {IMPORT_TYPE_OPTIONS.map((t) => (
+            <button
+              key={t.code}
+              className={`import-type-card${importTypeCode === t.code ? " active" : ""}`}
+              onClick={() => handleTypeSelect(t.code)}
+            >
+              <span className="import-type-card-icon">{t.icon}</span>
+              <span className="import-type-card-label">{t.label}</span>
+              <span className="import-type-card-desc">{t.desc}</span>
+            </button>
+          ))}
         </div>
+      </div>
 
+      {/* ── Факт продажів — окремий движок ───────────────────────────────── */}
+      {importTypeCode === "sales_fact" && <SalesFactImportTab />}
+
+      {/* ── PnL Plan / Fact — існуючий движок ────────────────────────────── */}
+      {(importTypeCode === "pnl_plan" || importTypeCode === "pnl_fact") && (
+      <>
+      <DataCard
+        title={importTypeCode === "pnl_plan" ? "Імпорт PnL — План" : "Імпорт PnL — Факт"}
+        subtitle="Завантаження даних з Google Sheets / Excel / CSV / OLAP."
+      >
         {error && <div className="error-message">{error}</div>}
 
         {/* ── STEP 1: SOURCE ─────────────────────────────────────────────── */}
@@ -751,19 +790,12 @@ function PnlImportPage() {
               {testResult.connection_ok && testResult.rows_preview && testResult.rows_preview.length > 0 && (
                 <div className="olap-test-section">
                   <strong>Перші {testResult.rows_preview.length} рядки:</strong>
-                  <div className="preview-scroll" style={{ marginTop: 6 }}>
-                    <table className="data-table preview-table">
-                      <thead>
-                        <tr>{testResult.columns.map((c) => <th key={c}>{c}</th>)}</tr>
-                      </thead>
-                      <tbody>
-                        {testResult.rows_preview.map((row, i) => (
-                          <tr key={i}>
-                            {testResult.columns.map((c) => <td key={c}>{String(row[c] ?? "")}</td>)}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="preview-table-wrap">
+                    <DataTable
+                      columns={testResult.columns.map((c) => ({ key: c, header: c }))}
+                      rows={testResult.rows_preview}
+                      rowKey={(_, i) => i}
+                    />
                   </div>
                 </div>
               )}
@@ -844,15 +876,12 @@ function PnlImportPage() {
           <div className="import-section">
             <h3 className="section-title">2. Знайдено колонок: {columns.length} / рядків: {totalRows}</h3>
             {previewRows.length > 0 && (
-              <div className="preview-scroll">
-                <table className="data-table preview-table">
-                  <thead><tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
-                  <tbody>
-                    {previewRows.map((row, i) => (
-                      <tr key={i}>{columns.map((c) => <td key={c}>{String(row[c] ?? "")}</td>)}</tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="preview-table-wrap">
+                <DataTable
+                  columns={columns.map((c) => ({ key: c, header: c }))}
+                  rows={previewRows}
+                  rowKey={(_, i) => i}
+                />
               </div>
             )}
           </div>
@@ -893,19 +922,6 @@ function PnlImportPage() {
           <div className="import-section">
             <h3 className="section-title">4. Параметри імпорту</h3>
             <div className="settings-grid">
-              <div className="field-row">
-                <label>Тип імпорту *</label>
-                <div className="radio-group">
-                  <label className="radio-label">
-                    <input type="radio" value="plan" checked={importType === "plan"} onChange={() => setImportType("plan")} />
-                    &nbsp;План
-                  </label>
-                  <label className="radio-label">
-                    <input type="radio" value="fact" checked={importType === "fact"} onChange={() => setImportType("fact")} />
-                    &nbsp;Факт
-                  </label>
-                </div>
-              </div>
               {importType === "plan" && (
                 <>
                   <div className="field-row">
@@ -942,40 +958,28 @@ function PnlImportPage() {
         {importResult && (
           <div className="import-section">
             <h3 className="section-title">Результат перевірки</h3>
-            <div className="result-summary">
-              <div className="result-stat ok">
-                <span className="result-num">{importResult.candidates}</span>
-                <span className="result-label">готово до імпорту</span>
-              </div>
-              <div className="result-stat skip">
-                <span className="result-num">{importResult.skipped}</span>
-                <span className="result-label">пропущено</span>
-              </div>
-              <div className="result-stat total">
-                <span className="result-num">{importResult.total_rows}</span>
-                <span className="result-label">всього рядків</span>
-              </div>
-            </div>
+            <KPIGrid cards={[
+              { label: "Готово до імпорту", value: importResult.candidates, variant: "ok" },
+              { label: "Пропущено",         value: importResult.skipped,    variant: "skip" },
+              { label: "Всього рядків",     value: importResult.total_rows, variant: "total" },
+            ]} />
 
             {importResult.errors && importResult.errors.length > 0 && (
               <div className="errors-block">
                 <p className="errors-title">
                   Помилки ({importResult.errors.length}{importResult.errors.length >= 200 ? "+" : ""}):
                 </p>
-                <table className="data-table errors-table">
-                  <thead>
-                    <tr><th>Рядок</th><th>Тип помилки</th><th>Значення</th></tr>
-                  </thead>
-                  <tbody>
-                    {importResult.errors.map((e, i) => (
-                      <tr key={i}>
-                        <td>{e.row}</td>
-                        <td>{ERROR_LABELS[e.type] || e.type}</td>
-                        <td>{e.value || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="preview-table-wrap">
+                  <DataTable
+                    columns={[
+                      { key: "row",    header: "Рядок" },
+                      { key: "_type",  header: "Тип помилки", render: (row) => ERROR_LABELS[row.type] || row.type },
+                      { key: "value",  header: "Значення",    render: (row) => row.value || "—" },
+                    ]}
+                    rows={importResult.errors}
+                    rowKey={(_, i) => i}
+                  />
+                </div>
               </div>
             )}
 
@@ -1016,24 +1020,13 @@ function PnlImportPage() {
         {commitResult && (
           <div className="import-section">
             <h3 className="section-title">Результат збереження</h3>
-            <div className="result-summary">
-              <div className="result-stat ok">
-                <span className="result-num">{commitResult.imported}</span>
-                <span className="result-label">збережено</span>
-              </div>
-              <div className="result-stat skip">
-                <span className="result-num">{commitResult.skipped}</span>
-                <span className="result-label">пропущено</span>
-              </div>
-              <div className="result-stat total">
-                <span className="result-num">{commitResult.total_rows}</span>
-                <span className="result-label">всього рядків</span>
-              </div>
-            </div>
+            <KPIGrid cards={[
+              { label: "Збережено",     value: commitResult.imported,   variant: "ok" },
+              { label: "Пропущено",     value: commitResult.skipped,    variant: "skip" },
+              { label: "Всього рядків", value: commitResult.total_rows, variant: "total" },
+            ]} />
             {commitResult.imported > 0 && (
-              <div style={{ color: "#27ae60", fontWeight: 600, marginTop: 8 }}>
-                ✓ Дані успішно записані в базу
-              </div>
+              <div className="import-success-text">✓ Дані успішно записані в базу</div>
             )}
           </div>
         )}
@@ -1123,7 +1116,7 @@ function PnlImportPage() {
             </div>
           </div>
         )}
-      </section>
+      </DataCard>
 
       {createArticleFor && (
         <CreateArticleModal
@@ -1136,361 +1129,9 @@ function PnlImportPage() {
           onSuccess={handleCreateArticleSuccess}
         />
       )}
+      </>
+      )}
 
-      <style>{`
-        .import-section {
-          margin-bottom: 28px;
-          padding-bottom: 24px;
-          border-bottom: 1px solid #f0f0f0;
-        }
-        .import-section:last-child { border-bottom: none; }
-
-        .section-title {
-          font-size: 15px;
-          font-weight: 600;
-          color: #2c3e50;
-          margin: 0 0 14px 0;
-        }
-
-        .section-title-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 14px;
-        }
-        .section-title-row .section-title { margin: 0; }
-
-        .mapping-actions { display: flex; align-items: center; gap: 10px; }
-
-        .mapping-status {
-          font-size: 12px;
-          padding: 3px 8px;
-          border-radius: 10px;
-          font-weight: 500;
-        }
-        .mapping-status.ok    { background: #eafaf1; color: #27ae60; border: 1px solid #a9dfbf; }
-        .mapping-status.unsaved { background: #fef9e7; color: #b7950b; border: 1px solid #f9e79f; }
-
-        .mapping-badge {
-          font-size: 11px;
-          padding: 2px 8px;
-          border-radius: 10px;
-          font-weight: 500;
-          white-space: nowrap;
-        }
-        .mapping-badge.saved   { background: #eafaf1; color: #27ae60; border: 1px solid #a9dfbf; }
-        .mapping-badge.unsaved { background: #fef5e4; color: #b7950b; border: 1px solid #f9e79f; }
-
-        .field-row {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 12px;
-        }
-        .field-row label {
-          min-width: 220px;
-          font-size: 14px;
-          color: #555;
-          flex-shrink: 0;
-        }
-        .field-row input[type="text"],
-        .field-row input[type="file"],
-        .field-row select {
-          flex: 1;
-          max-width: 480px;
-          padding: 8px 12px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 14px;
-          box-sizing: border-box;
-        }
-        .field-row input:focus,
-        .field-row select:focus {
-          outline: none;
-          border-color: #3498db;
-          box-shadow: 0 0 4px rgba(52,152,219,0.2);
-        }
-
-        .preview-scroll {
-          overflow-x: auto;
-          max-height: 240px;
-          overflow-y: auto;
-          border: 1px solid #eee;
-          border-radius: 4px;
-          margin-top: 8px;
-        }
-        .preview-table th,
-        .preview-table td { white-space: nowrap; font-size: 12px; padding: 6px 10px !important; }
-
-        .col-map-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px 24px;
-          max-width: 860px;
-        }
-        .col-map-row { display: flex; align-items: center; gap: 10px; }
-        .col-map-label {
-          min-width: 210px;
-          font-size: 14px;
-          color: #444;
-          flex-shrink: 0;
-        }
-        .col-map-label .required { color: #e74c3c; }
-        .col-map-row select {
-          flex: 1;
-          padding: 7px 10px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 13px;
-          min-width: 0;
-        }
-        .col-map-row select:focus { outline: none; border-color: #3498db; }
-
-        .hint { font-size: 12px; color: #888; margin-top: 10px; max-width: 700px; line-height: 1.5; }
-
-        .settings-grid { max-width: 480px; }
-        .radio-group { display: flex; gap: 20px; }
-        .radio-label { display: flex; align-items: center; font-size: 14px; cursor: pointer; }
-        .run-row { margin-top: 16px; }
-
-        .result-summary { display: flex; gap: 24px; margin-bottom: 20px; }
-        .result-stat {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 16px 24px;
-          border-radius: 8px;
-          min-width: 100px;
-        }
-        .result-stat.ok    { background: #eafaf1; }
-        .result-stat.skip  { background: #fef9e7; }
-        .result-stat.total { background: #eaf2fd; }
-        .result-num { font-size: 28px; font-weight: 700; line-height: 1; }
-        .result-stat.ok    .result-num { color: #27ae60; }
-        .result-stat.skip  .result-num { color: #e67e22; }
-        .result-stat.total .result-num { color: #2980b9; }
-        .result-label { font-size: 12px; color: #777; margin-top: 4px; }
-
-        .errors-block { margin-top: 8px; }
-        .errors-title { font-size: 13px; font-weight: 600; color: #c0392b; margin-bottom: 8px; }
-        .errors-table th,
-        .errors-table td { font-size: 13px; padding: 6px 12px !important; }
-
-        .error-message {
-          padding: 12px;
-          background: #fee;
-          border: 1px solid #fcc;
-          border-radius: 4px;
-          color: #c33;
-          margin-bottom: 16px;
-          font-size: 14px;
-        }
-
-        /* Commit block */
-        .commit-block { margin-top: 16px; }
-        .existing-warning {
-          display: flex;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 10px;
-          padding: 10px 14px;
-          background: #fff8e1;
-          border: 1px solid #ffe082;
-          border-radius: 4px;
-          color: #795548;
-          font-size: 13px;
-          margin-bottom: 12px;
-        }
-        .replace-checkbox { display: flex; align-items: center; cursor: pointer; font-weight: 500; }
-        .replace-hint { color: #999; font-size: 12px; }
-        .result-stat.success { background: #eafaf1; }
-
-        /* Source info box */
-        .source-info-box {
-          margin: 10px 0 4px;
-          padding: 10px 14px;
-          background: #eaf4fd;
-          border: 1px solid #b3d7f0;
-          border-radius: 6px;
-          font-size: 13px;
-          color: #1a5276;
-          max-width: 600px;
-        }
-        .source-info-list {
-          margin: 4px 0 0 16px;
-          padding: 0;
-          line-height: 1.7;
-        }
-
-        /* Quick mapping */
-        .qmap-section { background: #fafbfc; border-radius: 6px; padding: 20px; border: 1px solid #e8edf2; }
-        .qmap-section-header {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          margin-bottom: 6px;
-        }
-        .qmap-section-header .section-title { margin: 0; }
-        .qmap-source-badge {
-          font-size: 12px;
-          padding: 3px 10px;
-          background: #fff3cd;
-          border: 1px solid #ffe082;
-          border-radius: 12px;
-          color: #856404;
-          white-space: nowrap;
-        }
-        .qmap-block { margin-bottom: 24px; }
-        .qmap-title { font-size: 14px; font-weight: 600; color: #2c3e50; margin: 0 0 10px 0; }
-        .qmap-table th,
-        .qmap-table td { font-size: 13px; padding: 7px 12px !important; vertical-align: middle; }
-        .qmap-select {
-          width: 100%;
-          min-width: 200px;
-          padding: 6px 10px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 13px;
-        }
-        .qmap-select:focus { outline: none; border-color: #3498db; }
-        .qmap-row-error { font-size: 11px; color: #c33; margin-top: 3px; }
-        .qmap-saved td { color: #888; }
-        .qmap-ok { color: #27ae60 !important; font-weight: 500; }
-
-        .no-sources-hint {
-          margin: 4px 0 8px;
-          padding: 10px 14px;
-          background: #fff8e1;
-          border: 1px solid #ffe082;
-          border-radius: 4px;
-          color: #795548;
-          font-size: 13px;
-        }
-
-        .ext-context-row {
-          display: flex;
-          gap: 24px;
-          padding: 8px 12px;
-          background: #f4f6f8;
-          border-radius: 6px;
-          font-size: 13px;
-          color: #555;
-          margin-bottom: 14px;
-        }
-        .ext-context-row strong { color: #222; }
-
-        /* OLAP mode badge */
-        .olap-mode-badge {
-          display: inline-block;
-          padding: 3px 10px;
-          border-radius: 10px;
-          font-size: 11px;
-          font-weight: 600;
-          margin-bottom: 10px;
-        }
-        .olap-mode-badge.ssas { background: #e8f4fd; color: #1a5276; border: 1px solid #aed6f1; }
-        .olap-mode-badge.sql  { background: #eafaf1; color: #1e8449; border: 1px solid #a9dfbf; }
-
-        /* OLAP source info block */
-        .olap-source-info {
-          margin: 8px 0 12px;
-          padding: 12px 16px;
-          background: #f0f4ff;
-          border: 1px solid #c5d3f0;
-          border-radius: 6px;
-          max-width: 680px;
-        }
-        .olap-info-row {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 6px;
-          font-size: 13px;
-          align-items: flex-start;
-        }
-        .olap-info-row:last-child { margin-bottom: 0; }
-        .olap-info-label {
-          min-width: 130px;
-          color: #5c6b8a;
-          font-weight: 500;
-          flex-shrink: 0;
-        }
-        .olap-info-value { color: #1a2a4a; }
-        .olap-query-row { flex-direction: column; gap: 4px; }
-        .olap-query-preview {
-          margin: 0;
-          padding: 8px 10px;
-          background: #e8edf8;
-          border-radius: 4px;
-          font-size: 12px;
-          font-family: monospace;
-          color: #1a2a4a;
-          white-space: pre-wrap;
-          word-break: break-all;
-          max-height: 100px;
-          overflow-y: auto;
-        }
-        .olap-warn {
-          padding: 8px 10px;
-          background: #fff3cd;
-          border: 1px solid #ffe082;
-          border-radius: 4px;
-          font-size: 13px;
-          color: #856404;
-        }
-
-        /* OLAP test result block */
-        .olap-test-result {
-          margin: 10px 0 14px;
-          padding: 12px 16px;
-          border-radius: 6px;
-          max-width: 760px;
-          font-size: 13px;
-        }
-        .olap-test-result.ok   { background: #eafaf1; border: 1px solid #a9dfbf; }
-        .olap-test-result.fail { background: #fdf2f2; border: 1px solid #f5c6cb; }
-        .olap-test-header {
-          font-weight: 600;
-          font-size: 14px;
-          margin-bottom: 10px;
-        }
-        .olap-test-result.ok   .olap-test-header { color: #1e8449; }
-        .olap-test-result.fail .olap-test-header { color: #c0392b; }
-        .olap-test-section { margin-bottom: 8px; color: #333; }
-        .olap-drivers-list,
-        .olap-attempts-list {
-          margin: 4px 0 0 16px;
-          padding: 0;
-          line-height: 1.7;
-        }
-        .attempt-ok   { color: #1e8449; }
-        .attempt-fail { color: #c0392b; }
-        .olap-test-error {
-          margin-top: 8px;
-          padding: 8px 10px;
-          background: #fee;
-          border: 1px solid #fcc;
-          border-radius: 4px;
-          color: #c33;
-          font-size: 12px;
-          word-break: break-word;
-        }
-        .olap-test-install {
-          margin-top: 10px;
-          padding: 10px 12px;
-          background: #fff8e1;
-          border: 1px solid #ffe082;
-          border-radius: 4px;
-          color: #795548;
-          font-size: 12px;
-          line-height: 1.8;
-        }
-        .olap-test-install code {
-          background: #f1f1f1;
-          padding: 1px 5px;
-          border-radius: 3px;
-          font-family: monospace;
-        }
-      `}</style>
     </>
   );
 }

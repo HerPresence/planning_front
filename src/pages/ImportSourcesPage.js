@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -26,6 +27,7 @@ const EMPTY_SOURCE = {
   source_name: "",
   source_type: "google_sheets",
   source_url: "",
+  import_type_code: "",
   article_id_field: "",
   article_name_field: "",
   article_type_field: "",
@@ -62,6 +64,8 @@ function formatApiError(err, fallback) {
 }
 
 function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourceId = "" }) {
+  const { canEdit } = usePagePermission("importSources");
+
   const [activeTab, setActiveTab] = useState(initialTab || "sources");
 
   // shared data
@@ -138,6 +142,7 @@ function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourc
       source_name: s.source_name || "",
       source_type: s.source_type || "google_sheets",
       source_url: s.source_url || "",
+      import_type_code: s.import_type_code || "",
       article_id_field: s.article_id_field || "",
       article_name_field: s.article_name_field || "",
       article_type_field: s.article_type_field || "",
@@ -486,6 +491,19 @@ function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourc
                 </select>
               </div>
 
+              <div className="form-field">
+                <label>Тип імпорту</label>
+                <select
+                  value={sourceForm.import_type_code}
+                  onChange={(e) => setSourceForm({ ...sourceForm, import_type_code: e.target.value })}
+                >
+                  <option value="">— не вказано —</option>
+                  <option value="sales_fact">Факт продажів (товарооборот)</option>
+                  <option value="pnl_plan">PnL — План</option>
+                  <option value="pnl_fact">PnL — Факт</option>
+                </select>
+              </div>
+
               {/* ── non-OLAP: URL + article column mapping ──────────────── */}
               {!["olap_ssas_dax", "sql_odbc", "olap_sql"].includes(sourceForm.source_type) && (
                 <>
@@ -761,231 +779,6 @@ function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourc
         </Modal>
       )}
 
-      <style>{`
-        .tabs-header {
-          display: flex;
-          gap: 8px;
-          margin-bottom: 16px;
-          border-bottom: 1px solid #ddd;
-        }
-
-        .tab-btn {
-          padding: 8px 18px;
-          background: none;
-          border: none;
-          border-bottom: 3px solid transparent;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          color: #666;
-          transition: all 0.2s;
-        }
-
-        .tab-btn:hover { color: #2c3e50; border-bottom-color: #e0e0e0; }
-        .tab-btn.active { color: #3498db; border-bottom-color: #3498db; }
-
-        .source-filter {
-          padding: 8px 12px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 14px;
-          min-width: 200px;
-        }
-
-        .url-cell {
-          max-width: 260px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-size: 12px;
-          color: #555;
-        }
-
-        .row-inactive td { color: #bbb; }
-
-        .error-message {
-          padding: 12px;
-          background: #fee;
-          border: 1px solid #fcc;
-          border-radius: 4px;
-          color: #c33;
-          margin-bottom: 15px;
-          font-size: 14px;
-        }
-
-        .loading {
-          padding: 20px;
-          text-align: center;
-          color: #666;
-        }
-
-        .empty-row {
-          text-align: center;
-          color: #999;
-          padding: 20px !important;
-        }
-
-        .form-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-bottom: 4px;
-        }
-
-        .form-field {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .form-field.full { grid-column: 1 / -1; }
-
-        .form-field label {
-          font-size: 12px;
-          font-weight: 500;
-          color: #555;
-        }
-
-        .section-label {
-          font-size: 11px !important;
-          color: #999 !important;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          padding-top: 8px;
-        }
-
-        .section-divider {
-          border-top: 1px solid #eee;
-          padding-top: 12px;
-          margin-top: 4px;
-        }
-
-        .section-help {
-          font-size: 12px;
-          color: #888;
-          margin: 4px 0 0;
-          line-height: 1.4;
-        }
-
-        .form-field input,
-        .form-field select {
-          padding: 8px 10px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 14px;
-          box-sizing: border-box;
-        }
-
-        .form-field input:focus,
-        .form-field select:focus {
-          outline: none;
-          border-color: #3498db;
-          box-shadow: 0 0 4px rgba(52,152,219,0.2);
-        }
-
-        .form-row {
-          margin-bottom: 12px;
-          min-width: 0;
-        }
-
-        .form-row input,
-        .form-row select {
-          width: 100%;
-          box-sizing: border-box;
-          padding: 8px 12px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 14px;
-        }
-
-        .form-row input:focus,
-        .form-row select:focus {
-          outline: none;
-          border-color: #3498db;
-          box-shadow: 0 0 4px rgba(52,152,219,0.2);
-        }
-
-        .no-sources-hint {
-          margin: 4px 0 8px;
-          padding: 10px 14px;
-          background: #fff8e1;
-          border: 1px solid #ffe082;
-          border-radius: 4px;
-          color: #795548;
-          font-size: 13px;
-        }
-
-        .checkbox-label {
-          display: flex;
-          align-items: center;
-          font-size: 14px;
-          cursor: pointer;
-        }
-
-        .modal-error {
-          padding: 10px 14px;
-          background: #fee;
-          border: 1px solid #fcc;
-          border-radius: 4px;
-          color: #c33;
-          font-size: 13px;
-          margin-bottom: 12px;
-        }
-
-        .modal-actions {
-          display: flex;
-          gap: 10px;
-          justify-content: flex-end;
-          margin-top: 20px;
-        }
-
-        .query-textarea {
-          width: 100%;
-          box-sizing: border-box;
-          padding: 8px 10px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 13px;
-          font-family: 'Consolas', 'Monaco', monospace;
-          line-height: 1.5;
-          resize: vertical;
-          color: #222;
-        }
-
-        .query-textarea:focus {
-          outline: none;
-          border-color: #3498db;
-          box-shadow: 0 0 4px rgba(52,152,219,0.2);
-        }
-
-        .olap-info-box {
-          background: #f0f7ff;
-          border: 1px solid #bcd;
-          border-radius: 4px;
-          padding: 10px 14px;
-          font-size: 12px;
-          color: #345;
-          line-height: 1.5;
-        }
-
-        .olap-info-box strong {
-          display: block;
-          margin-bottom: 6px;
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.4px;
-          color: #567;
-        }
-
-        .olap-info-box ul {
-          margin: 0;
-          padding-left: 16px;
-        }
-
-        .olap-info-box li {
-          margin-bottom: 2px;
-        }
-      `}</style>
     </>
   );
 }

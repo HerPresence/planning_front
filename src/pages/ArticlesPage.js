@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -33,6 +34,8 @@ const emptyForm = {
 };
 
 function ArticlesPage({ setActivePage }) {
+  const { canEdit } = usePagePermission("articles");
+
   const [articles,      setArticles]      = useState([]);
   const [pnlStructures, setPnlStructures] = useState([]);
   const [level2Options, setLevel2Options] = useState([]);
@@ -237,8 +240,8 @@ function ArticlesPage({ setActivePage }) {
       style:   { textAlign: "center", whiteSpace: "nowrap" },
       render: (row) => (
         <>
-          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
-          <button className="icon-btn delete" onClick={() => alert("Деактивацію підключимо наступним пакетом")}>×</button>
+          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
+          {canEdit && <button className="icon-btn delete" onClick={() => alert("Деактивацію підключимо наступним пакетом")}>×</button>}
         </>
       ),
     },

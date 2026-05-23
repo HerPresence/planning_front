@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -15,6 +16,8 @@ import {
 } from "../api/organizationsApi";
 
 function OrganizationsPage({ setActivePage }) {
+  const { canEdit } = usePagePermission("organizations");
+
   const [organizations,      setOrganizations]      = useState([]);
   const [holdings,           setHoldings]           = useState([]);
   const [search,             setSearch]             = useState("");
@@ -123,8 +126,8 @@ function OrganizationsPage({ setActivePage }) {
       style:   { textAlign: "center", whiteSpace: "nowrap" },
       render: (row) => (
         <>
-          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
-          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
+          {canEdit && <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>}
         </>
       ),
     },
@@ -135,7 +138,7 @@ function OrganizationsPage({ setActivePage }) {
       <DataCard
         title="Організації"
         subtitle="Довідник організацій для системи планування."
-        actions={<Button variant="primary" onClick={openAddModal}>+ Додати організацію</Button>}
+        actions={canEdit && <Button variant="primary" onClick={openAddModal}>+ Додати організацію</Button>}
       >
         <TableToolbar
           filters={[{

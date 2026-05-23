@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -27,6 +28,8 @@ const PNL_GROUP_OPTIONS = [
 const SUBTOTAL_GROUPS = ["EBITDA", "EBIT", "EBT", "NetProfit"];
 
 function PnlStructurePage({ setActivePage }) {
+  const { canEdit } = usePagePermission("pnlStructure");
+
   const [pnlStructures, setPnlStructures] = useState([]);
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -282,12 +285,8 @@ function PnlStructurePage({ setActivePage }) {
                     </span>
                   </td>
                   <td>
-                    <button className="icon-btn edit" onClick={() => openEditModal(item)}>
-                      ✎
-                    </button>
-                    <button className="icon-btn delete" onClick={() => handleDeactivate(item)}>
-                      ×
-                    </button>
+                    {canEdit && <button className="icon-btn edit" onClick={() => openEditModal(item)}>✎</button>}
+                    {canEdit && <button className="icon-btn delete" onClick={() => handleDeactivate(item)}>×</button>}
                   </td>
                 </tr>
               ))}

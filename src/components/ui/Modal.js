@@ -10,8 +10,7 @@ function Modal({ title, children, onClose, size = "normal" }) {
             ×
           </button>
         </div>
-
-        {children}
+        <div className="modal-body">{children}</div>
       </div>
     </div>
   );

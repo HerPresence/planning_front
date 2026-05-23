@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -19,6 +20,8 @@ import { getRegions }        from "../api/regionsApi";
 import { getBranches }       from "../api/branchesApi";
 
 function DepartmentsPage({ setActivePage }) {
+  const { canEdit } = usePagePermission("departments");
+
   const [departments,      setDepartments]      = useState([]);
   const [holdings,         setHoldings]         = useState([]);
   const [organizations,    setOrganizations]    = useState([]);
@@ -155,8 +158,8 @@ function DepartmentsPage({ setActivePage }) {
       style:   { textAlign: "center", whiteSpace: "nowrap" },
       render: (row) => (
         <>
-          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
-          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
+          {canEdit && <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>}
         </>
       ),
     },
@@ -167,7 +170,7 @@ function DepartmentsPage({ setActivePage }) {
       <DataCard
         title="Підрозділи"
         subtitle="Довідник підрозділів для PnL / планування."
-        actions={<Button variant="primary" onClick={openAddModal}>+ Додати підрозділ</Button>}
+        actions={canEdit && <Button variant="primary" onClick={openAddModal}>+ Додати підрозділ</Button>}
       >
         <TableToolbar
           filters={[{

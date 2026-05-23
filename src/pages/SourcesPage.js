@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { usePagePermission } from "../hooks/usePagePermission";
 
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -14,6 +15,8 @@ import {
 } from "../api/sourcesApi";
 
 function SourcesPage({ setActivePage }) {
+  const { canEdit } = usePagePermission("sources");
+
   const [sources,      setSources]      = useState([]);
   const [search,       setSearch]       = useState("");
   const [showModal,    setShowModal]    = useState(false);
@@ -104,8 +107,8 @@ function SourcesPage({ setActivePage }) {
       style:   { textAlign: "center", whiteSpace: "nowrap" },
       render: (row) => (
         <>
-          <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>
-          <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>
+          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
+          {canEdit && <button className="icon-btn delete" onClick={() => handleDeactivate(row)}>×</button>}
         </>
       ),
     },
@@ -116,7 +119,7 @@ function SourcesPage({ setActivePage }) {
       <DataCard
         title="Джерела"
         subtitle="Довідник джерел даних для системи планування."
-        actions={<Button variant="primary" onClick={openAddModal}>+ Додати джерело</Button>}
+        actions={canEdit && <Button variant="primary" onClick={openAddModal}>+ Додати джерело</Button>}
       >
         <TableToolbar
           filters={[{
