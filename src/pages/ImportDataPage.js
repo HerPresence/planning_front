@@ -35,9 +35,10 @@ const IMPORT_TYPES = {
   articles: {
     label: "Статті PnL",
     icon: "📋",
-    desc: "OLAP → dim_article",
+    desc: "OLAP → source articles → відповідність",
     hasPeriod: false,
-    targetLabel: "dim_article",
+    targetLabel: "source articles / відповідність",
+    isArticleFlow: true,
   },
   sales_fact: {
     label: "Факт продажів",
@@ -154,14 +155,22 @@ function BatchDetailModal({ batch, onClose, onDelete, onViewStaging }) {
   const isCommitted = batch.status === "committed";
   const isLoaded    = batch.status === "loaded";
 
+  const periodStr = batch.period_from && batch.period_to
+    ? `${batch.period_from.slice(0, 7)} — ${batch.period_to.slice(0, 7)}`
+    : null;
+
   const handleDelete = async () => {
     let deleteFact = false;
+    const periodInfo = periodStr ? `\nПеріод: ${periodStr}` : "";
     const msg = isCommitted
-      ? `Видалити batch #${batch.id}?\n\nЗаписано в ${batch.target_table}.\n\nОберіть далі чи видалити записані дані.`
-      : `Видалити batch #${batch.id} та ${batch.rows_loaded} рядків у staging?`;
+      ? `Видалити batch #${batch.id}?\n\nЗаписано в ${batch.target_table}.${periodInfo}\n\nОберіть далі чи видалити записані дані.`
+      : `Видалити batch #${batch.id} та ${batch.rows_loaded} рядків у staging?${periodInfo}`;
     if (!window.confirm(msg)) return;
     if (isCommitted) {
-      deleteFact = window.confirm(`Також видалити дані із ${batch.target_table}?`);
+      const factMsg = periodStr
+        ? `Також видалити дані із ${batch.target_table}\nза period_from=${batch.period_from} .. period_to=${batch.period_to}\nдля source_id=${batch.source_id}?`
+        : `Також видалити дані із ${batch.target_table}?`;
+      deleteFact = window.confirm(factMsg);
     }
     onDelete(batch, deleteFact);
     onClose();
@@ -192,6 +201,9 @@ function BatchDetailModal({ batch, onClose, onDelete, onViewStaging }) {
           {f("Джерело", batch.source_name || batch.source_id)}
           {f("Тип імпорту", batch.import_type_code)}
           {f("Таблиця-ціль", batch.target_table)}
+          {periodStr && f("Вибраний період", periodStr)}
+          {batch.replace_mode && f("Режим заміни", batch.replace_mode)}
+          {batch.period_field && f("Поле дати", batch.period_field)}
           {f("Рядків у джерелі", batch.rows_total)}
           {f("Записано у staging", batch.rows_loaded)}
           {f("Валідних", batch.rows_valid)}
@@ -429,7 +441,30 @@ function RawPreviewPanel({ data }) {
 
 // ── Mapping Editor with Sample Values ─────────────────────────────────────────
 
-function MappingEditorWithSamples({ sourceId, previewData, onSaved }) {
+const CANONICAL_FIELDS = {
+  departments: [
+    "department_uid","department_name","organization_name",
+    "branch_name","region_name","holding_name",
+    "parent_department_uid","parent_department_name",
+    "separated_department_uid","separated_department_name",
+  ],
+  brands: [
+    "brand_uid","brand_name","brand_group",
+    "parent_brand_uid","parent_brand_name",
+  ],
+  articles: [
+    "article_uid","article_name","article_type",
+    "level1","level2","pnl_code",
+    "expense_element","expense_company",
+  ],
+  sales_fact: [
+    "department_uid","department_name","product_group_id",
+    "product_group_uid","product_group_name","period_month",
+    "sales_vat","sales_retail","excise","sales_dal","sales_kg",
+  ],
+};
+
+function MappingEditorWithSamples({ sourceId, previewData, onSaved, importType }) {
   const [mapping,  setMapping]  = useState([]);
   const [saving,   setSaving]   = useState(false);
   const [msg,      setMsg]      = useState(null);
@@ -529,9 +564,36 @@ function MappingEditorWithSamples({ sourceId, previewData, onSaved }) {
                       </span>
                     </td>
                     <td style={{ padding: "4px 8px" }}>
-                      <input value={row.target_field}
-                             onChange={e => updateRow(i, "target_field", e.target.value)}
-                             style={inS} placeholder="target_field" />
+                      {(() => {
+                        const canonicalList = CANONICAL_FIELDS[importType] || [];
+                        const isExtra = row.target_field && !canonicalList.includes(row.target_field);
+                        const listId = `cf-${importType}`;
+                        return (
+                          <>
+                            <input
+                              value={row.target_field}
+                              onChange={e => updateRow(i, "target_field", e.target.value)}
+                              list={listId}
+                              style={{
+                                ...inS,
+                                borderColor: isExtra ? "#f59e0b" : undefined,
+                                background:  isExtra ? "#fffbeb" : undefined,
+                              }}
+                              placeholder="Назва поля системи..."
+                            />
+                            {canonicalList.length > 0 && (
+                              <datalist id={listId}>
+                                {canonicalList.map(f => <option key={f} value={f} />)}
+                              </datalist>
+                            )}
+                            {isExtra && (
+                              <div style={{ fontSize: 10, color: "#92400e", marginTop: 2 }}>
+                                extra_fields (не canonical)
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: "4px 8px", textAlign: "center" }}>
                       <input type="checkbox" checked={!!row.required}
@@ -760,6 +822,8 @@ function BatchHistoryPanel({ importType, refreshKey, onSelect }) {
               <th>#</th>
               <th>Джерело</th>
               <th>Статус</th>
+              <th>Тип / Ціль</th>
+              <th>Період</th>
               <th style={{ textAlign: "right" }}>Всього</th>
               <th style={{ textAlign: "right" }}>Валід.</th>
               <th style={{ textAlign: "right" }}>Помилок</th>
@@ -772,9 +836,25 @@ function BatchHistoryPanel({ importType, refreshKey, onSelect }) {
             {batches.map(b => (
               <tr key={b.id}>
                 <td style={{ color: "#9ca3af" }}>#{b.id}</td>
-                <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                <td style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                     title={b.source_name}>{b.source_name || b.source_id}</td>
-                <td><StatusBadge status={b.status} /></td>
+                <td>
+                  <StatusBadge status={b.status} />
+                  {b.error_message && (
+                    <div style={{ color: "#991b1b", fontSize: 10, maxWidth: 100, overflow: "hidden",
+                                  textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}
+                         title={b.error_message}>{b.error_message}</div>
+                  )}
+                </td>
+                <td style={{ fontSize: 11, color: "#6b7280" }}>
+                  <div>{b.import_type_code || "—"}</div>
+                  <div style={{ color: "#9ca3af" }}>→ {b.target_table || "—"}</div>
+                </td>
+                <td style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+                  {b.period_from && b.period_to
+                    ? <>{b.period_from.slice(0, 7)}<br />{b.period_to.slice(0, 7)}</>
+                    : <span style={{ color: "#d1d5db" }}>—</span>}
+                </td>
                 <td style={{ textAlign: "right" }}>{b.rows_total ?? "—"}</td>
                 <td style={{ textAlign: "right", color: "#065f46", fontWeight: 600 }}>{b.rows_valid ?? b.rows_loaded ?? "—"}</td>
                 <td style={{ textAlign: "right", color: (b.rows_invalid ?? 0) > 0 ? "#991b1b" : undefined,
@@ -812,7 +892,7 @@ function BatchHistoryPanel({ importType, refreshKey, onSelect }) {
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════════════
 
-export default function ImportDataPage() {
+export default function ImportDataPage({ setActivePage }) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [importType,    setImportType]    = useState(null);
   const [sources,       setSources]       = useState([]);
@@ -937,8 +1017,13 @@ export default function ImportDataPage() {
       const res = await commitBatch(batchId);
       setCommitResult(res);
       const meta = IMPORT_TYPES[importType];
-      const n = res.committed ?? res.upserted ?? "?";
-      setSuccess(`Записано ${n} рядків у ${meta?.targetLabel || "ціль"}`);
+      if (meta?.isArticleFlow) {
+        const total = (res.inserted ?? 0) + (res.updated ?? 0);
+        setSuccess(`${total} статей передано у реєстр джерел. Нових прив'язок: ${res.new_mappings ?? 0}.`);
+      } else {
+        const n = res.committed ?? res.upserted ?? "?";
+        setSuccess(`Записано ${n} рядків у ${meta?.targetLabel || "ціль"}`);
+      }
       setHistoryKey(k => k + 1);
     } catch (e) {
       setError(e?.response?.data?.detail || "Помилка запису");
@@ -1047,6 +1132,7 @@ export default function ImportDataPage() {
               <MappingEditorWithSamples
                 sourceId={Number(sourceId)}
                 previewData={previewData}
+                importType={importType}
               />
             )}
           </div>
@@ -1108,7 +1194,7 @@ export default function ImportDataPage() {
               <h3 className="section-title">{meta?.hasPeriod ? "4" : "3"}. Staging — batch #{batchId}</h3>
 
               {/* KPI tiles */}
-              <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                 <KpiTile label="Всього" value={staging.total} color="#374151" />
                 <KpiTile label="Валідних" value={staging.valid} color="#065f46" />
                 <KpiTile label="Помилок" value={staging.invalid}
@@ -1117,6 +1203,16 @@ export default function ImportDataPage() {
                   <KpiTile label="Продажі з ПДВ" value={fmtNum(staging.total_sales_vat)} />
                 )}
               </div>
+
+              {/* Period info line */}
+              {(staging.period_from || staging.period_to) && (
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10, padding: "4px 0" }}>
+                  Період у staging:{" "}
+                  <strong style={{ color: "#374151" }}>{staging.period_from || "—"}</strong>
+                  {" — "}
+                  <strong style={{ color: "#374151" }}>{staging.period_to || "—"}</strong>
+                </div>
+              )}
 
               {/* Filter tabs */}
               <div style={{ display: "flex", gap: 6, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -1182,24 +1278,50 @@ export default function ImportDataPage() {
                           disabled={committing || !canCommit}
                           style={{ padding: "8px 20px", fontSize: 13 }}>
                     {committing ? "Запис..." : canCommit
-                      ? `✅ Завантажити ${staging.valid} рядків → ${meta?.targetLabel}`
+                      ? meta?.isArticleFlow
+                        ? `✅ Передати ${staging.valid} статей у відповідність`
+                        : `✅ Завантажити ${staging.valid} рядків → ${meta?.targetLabel}`
                       : "Немає валідних рядків"}
                   </button>
                 </div>
               ) : (
                 <div className="success-message" style={{ marginTop: 12 }}>
-                  {commitResult.upserted != null
-                    ? <>Upsert: <strong>{commitResult.upserted}</strong> рядків
+                  {meta?.isArticleFlow ? (
+                    <>
+                      <div>
+                        Статті завантажено у реєстр джерел:{" "}
+                        <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
+                        (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
+                        Нових прив'язок до перевірки: <strong>{commitResult.new_mappings ?? 0}</strong>.
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        Статті завантажено у source registry. Перейдіть у{" "}
+                        {setActivePage ? (
+                          <button
+                            onClick={() => setActivePage("articleSourceMapping")}
+                            style={{ color: "var(--primary)", background: "none", border: "none",
+                                     cursor: "pointer", fontWeight: 600, fontSize: 13, padding: 0 }}>
+                            Відповідність статей →
+                          </button>
+                        ) : (
+                          <strong>Відповідність статей</strong>
+                        )}
+                        {" "}для прив'язки до master PnL статей.
+                      </div>
+                    </>
+                  ) : commitResult.upserted != null ? (
+                    <>Upsert: <strong>{commitResult.upserted}</strong> рядків
                         (вставлено {commitResult.inserted}, оновлено {commitResult.updated})
                         у {meta?.targetLabel}</>
-                    : <>Записано <strong>{commitResult.committed}</strong> рядків
+                  ) : (
+                    <>Записано <strong>{commitResult.committed}</strong> рядків
                         у {meta?.targetLabel}
                         {commitResult.deleted_from_target > 0 &&
                           <span style={{ color: "#92400e" }}>
                             {" "}(замінено {commitResult.deleted_from_target} попередніх)
                           </span>}
-                      </>
-                  }
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -44,8 +44,15 @@ function Sidebar({ activePage, setActivePage }) {
   );
 
   const dirItems = [
-    item("articles",      "📄 Статті PnL",   ["articleImport"]),
-    item("importSources", "🔗 Відповідність"),
+    item("articles",      "📄 Статті PnL",          ["articleImport"]),
+    canView("importSources") ? (
+      <div key="articleSourceMapping"
+           className={activePage === "articleSourceMapping" ? "menu-item active" : "menu-item"}
+           onClick={() => setActivePage("articleSourceMapping")}>
+        🔗 Відповідність статей
+      </div>
+    ) : null,
+    item("importSources", "🔗 Відповідність полів"),
     item("masterL2",      "📂 Master L2"),
     item("masterL1",      "📁 Master L1"),
     item("brands",        "🏷 Бренди"),
