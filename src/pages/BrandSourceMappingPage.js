@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useAuth } from "../contexts/AuthContext";
 import Modal from "../components/ui/Modal";
 import Button from "../components/ui/Button";
 import {
@@ -15,6 +16,9 @@ import {
   createMasterFromMapping,
   unmapBrand,
   createParentBrand,
+  cleanupPreview,
+  cleanupConfirm,
+  restoreFromArchive,
 } from "../api/brandSourceMappingApi";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -848,11 +852,128 @@ function CreateParentModal({ row, onClose, onSuccess }) {
   );
 }
 
+
+// ── Cleanup Preview Modal ─────────────────────────────────────────────────────
+function CleanupPreviewModal({ preview, busy, onConfirm, onClose }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 2000,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}
+         onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 8, padding: 28, maxWidth: 560, width: "92%",
+                    maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+           onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+          <strong style={{ fontSize: 16 }}>🗑 Очистка неактивних source-брендів</strong>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          {[
+            ["Неактивних всього",         preview.inactive_total, "#b45309"],
+            ["Можна архівувати",          preview.can_archive,    "#c2410c"],
+            ["Пропущено (з прив'язкою)", preview.skipped_mapped, "#065f46"],
+          ].map(([label, val, color]) => (
+            <div key={label} style={{ background: "#f9fafb", border: "1px solid #e5e7eb",
+                                      borderRadius: 6, padding: "10px 14px" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color }}>{val ?? 0}</div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>{label}</div>
+            </div>
+          ))}
+        </div>
+        {preview.examples?.length > 0 && (
+          <>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+              Перші {preview.examples.length} брендів для архівації:
+            </div>
+            <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid #e5e7eb",
+                          borderRadius: 4, fontSize: 11 }}>
+              {preview.examples.map((r, i) => (
+                <div key={i} style={{ padding: "4px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                  <strong>{r.source_brand_name || "—"}</strong>
+                  {r.source_brand_group && <span style={{ color: "#6b7280", marginLeft: 6 }}>{r.source_brand_group}</span>}
+                  {r.last_seen_at && <span style={{ color: "#9ca3af", marginLeft: 6, fontSize: 10 }}>last: {r.last_seen_at.slice(0,10)}</span>}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+          <button onClick={onClose}
+            style={{ padding: "8px 18px", border: "1px solid #d1d5db", borderRadius: 4,
+                     cursor: "pointer", fontSize: 13 }}>
+            Скасувати
+          </button>
+          <button onClick={onConfirm} disabled={busy || preview.can_archive === 0}
+            style={{ padding: "8px 18px", background: preview.can_archive === 0 ? "#f3f4f6" : "#dc2626",
+                     color: preview.can_archive === 0 ? "#9ca3af" : "#fff",
+                     border: "none", borderRadius: 4, cursor: preview.can_archive === 0 ? "not-allowed" : "pointer",
+                     fontSize: 13, fontWeight: 600 }}>
+            {busy ? "Архівування..." : `Підтвердити архівацію (${preview.can_archive})`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Help Modal ────────────────────────────────────────────────────────────────
+function HelpModal({ onClose }) {
+  const steps = [
+    ["1. Імпорт брендів",
+     "OLAP повертає повний актуальний список брендів. Дані спочатку потрапляють у staging_brands через Import Center."],
+    ["2. Передача у відповідність",
+     "Дані зі staging оновлюють dim_brand_source — стабільний реєстр source-брендів. Використовується UPSERT: нові бренди додаються, існуючі оновлюються."],
+    ["3. Прив'язка (Відповідність)",
+     "Кожен source-бренд має бути: прив'язаний до існуючого master brand, або створений як новий master brand, або відхилений."],
+    ["4. Активність",
+     "Якщо бренд є в останньому OLAP імпорті — active. Якщо бренд зник з OLAP — inactive (але НЕ видаляється). Маппінг зберігається."],
+    ["5. Source changed",
+     "Якщо назва / група / parent / company змінились після нового імпорту — показується 'Source змінено'. Прив'язка не скидається автоматично."],
+    ["6. Parent brand",
+     "Якщо у бренда є parent, але parent відсутній у master — статус 'Немає parent'. Спочатку потрібно створити parent brand, потім child."],
+    ["7. Архів і Cleanup",
+     "Неактивні бренди без прив'язок можна архівувати. Це може робити тільки SuperAdmin через кнопку 'Архівувати неактивні'. Прив'язані бренди ніколи не архівуються автоматично."],
+    ["8. Правильний workflow",
+     "Import Center → Отримати дані OLAP → Завантажити в staging → Передати у відповідність → Bind / Create / Reject → Cleanup inactive (лише за потреби)"],
+    ["9. Заборонено", "• Створювати master для inactive source без перевірки\n• Видаляти mapped records\n• Скидати mapping при повторному імпорті"],
+  ];
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 2000,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}
+         onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 8, padding: 28, maxWidth: 620, width: "92%",
+                    maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+           onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <strong style={{ fontSize: 17 }}>📖 Як працює Відповідність брендів</strong>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
+        </div>
+        {steps.map(([title, desc], i) => (
+          <div key={i} style={{ marginBottom: 14, paddingBottom: 14,
+                                 borderBottom: i < steps.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: "#1f2937", marginBottom: 4 }}>{title}</div>
+            <div style={{ fontSize: 12, color: "#6b7280", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{desc}</div>
+          </div>
+        ))}
+        <div style={{ textAlign: "right", marginTop: 8 }}>
+          <button onClick={onClose}
+            style={{ padding: "8px 20px", background: "#2563eb", color: "#fff",
+                     border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13 }}>
+            Зрозуміло
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════════════
 
 export default function BrandSourceMappingPage() {
+  const { currentUser } = useAuth();
+  const isSuperAdmin = !!(currentUser?.is_admin && currentUser?.roles?.includes("SuperAdmin"));
+
   // ── State ──────────────────────────────────────────────────────────────────
   const [data,          setData]         = useState(null);
   const [masters,       setMasters]      = useState([]);
@@ -876,6 +997,10 @@ export default function BrandSourceMappingPage() {
   const [filterCompany,  setFilterCompany] = useState("");
   const [filterLevel,    setFilterLevel]   = useState("");
   const [filterActive,   setFilterActive]  = useState("");
+  const [visibility,     setVisibility]    = useState("active");
+  const [showHelp,       setShowHelp]       = useState(false);
+  const [cleanupPreviewData, setCleanupPreviewData] = useState(null);
+  const [cleanupBusy,    setCleanupBusy]    = useState(false);
   const [search,         setSearch]        = useState("");
   const [searchInput,    setSearchInput]   = useState("");
   const [page,           setPage]          = useState(1);
@@ -896,13 +1021,15 @@ export default function BrandSourceMappingPage() {
     if (filterCompany)  params.company         = filterCompany;
     if (filterLevel)    params.source_level    = filterLevel;
     if (filterActive)   params.source_is_active = filterActive;
+    params.visibility = visibility;
 
     getStagedBrands(params)
       .then(setData)
       .catch(() => setError("Помилка завантаження"))
       .finally(() => setLoading(false));
   }, [page, sourceId, sourceGroup, masterBrandId, statusFilter, search,
-      computedStatus, sourceChanged, filterCompany, filterLevel, filterActive]);
+      computedStatus, sourceChanged, filterCompany, filterLevel, filterActive,
+      visibility]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1003,6 +1130,18 @@ export default function BrandSourceMappingPage() {
   const handleComputedStatus = (s) => { setComputedStatus(s === computedStatus ? "" : s); setPage(1); };
   const handleSourceChanged = () => { setSourceChanged(v => !v); setPage(1); };
 
+  const handleCleanupConfirm = async () => {
+    setCleanupBusy(true);
+    try {
+      const result = await cleanupConfirm(sourceId || null);
+      setCleanupPreviewData(null);
+      setSuccess(`Архівовано: ${result.archived_count}, пропущено (прив'язані): ${result.skipped_mapped}`);
+      load();
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Помилка архівації");
+    } finally { setCleanupBusy(false); }
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const sources      = data?.sources       || [];
@@ -1089,8 +1228,23 @@ export default function BrandSourceMappingPage() {
       {/* KPI compact pill row */}
       {data && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <KpiPill label="Всього"      value={data.total}                color="#374151" />
+          {/* Visibility group */}
+          <KpiPill label="Активні"     value={data.active_total ?? data.total} color="#059669"
+                   active={visibility === "active"}
+                   onClick={() => { setVisibility("active"); setPage(1); }} />
+          <KpiPill label="Неактивні"   value={data.inactive_total ?? 0}        color="#b45309"
+                   active={visibility === "inactive"}
+                   onClick={() => { setVisibility("inactive"); setPage(1); }} />
+          {(data.archived_total ?? 0) > 0 && (
+            <KpiPill label="Архів"     value={data.archived_total}             color="#6b7280"
+                     active={visibility === "archived"}
+                     onClick={() => { setVisibility("archived"); setPage(1); }} />
+          )}
+          <KpiPill label="Всі"         value={(data.active_total ?? 0) + (data.inactive_total ?? 0) + (data.archived_total ?? 0)} color="#374151"
+                   active={visibility === "all"}
+                   onClick={() => { setVisibility("all"); setPage(1); }} />
           <span style={{ color: "#e5e7eb" }}>|</span>
+          {/* Mapping status group */}
           <KpiPill label="Очікує"      value={data.pending}              color="#92400e"
                    active={statusFilter === "pending"}
                    onClick={() => handleFilterStatus(statusFilter === "pending" ? "" : "pending")} />
@@ -1106,7 +1260,7 @@ export default function BrandSourceMappingPage() {
           {(data.source_changed_count ?? 0) > 0 && (
             <>
               <span style={{ color: "#e5e7eb" }}>|</span>
-              <KpiPill label="Змінено з джерела" value={data.source_changed_count} color="#1d4ed8"
+              <KpiPill label="Source змінено" value={data.source_changed_count} color="#1d4ed8"
                        active={sourceChanged}
                        onClick={handleSourceChanged} />
             </>
@@ -1298,6 +1452,32 @@ export default function BrandSourceMappingPage() {
           )}
         </div>
 
+        {/* Help button */}
+        <button
+          onClick={() => setShowHelp(true)}
+          title="Як працює Відповідність брендів"
+          style={{ padding: "6px 12px", background: "#f0f9ff", border: "1px solid #7dd3fc",
+                   borderRadius: 4, cursor: "pointer", fontSize: 13, color: "#0369a1",
+                   alignSelf: "flex-end", fontWeight: 600 }}>
+          ? Допомога
+        </button>
+
+        {/* SuperAdmin cleanup */}
+        {isSuperAdmin && (data?.inactive_total ?? 0) > 0 && (
+          <button
+            onClick={async () => {
+              try {
+                const preview = await cleanupPreview(sourceId || null);
+                setCleanupPreviewData(preview);
+              } catch { alert("Помилка попереднього перегляду"); }
+            }}
+            style={{ padding: "6px 12px", background: "#fff7ed", border: "1px solid #fb923c",
+                     borderRadius: 4, cursor: "pointer", fontSize: 12, color: "#c2410c",
+                     alignSelf: "flex-end" }}>
+            🗑 Архівувати неактивні ({data?.inactive_total})
+          </button>
+        )}
+
         <button onClick={load} disabled={loading}
           style={{ padding: "6px 12px", background: "#f3f4f6", border: "1px solid #d1d5db",
                    borderRadius: 4, cursor: "pointer", fontSize: 13, alignSelf: "flex-end" }}>
@@ -1364,6 +1544,7 @@ export default function BrandSourceMappingPage() {
               <th style={thS}>Рівень</th>
               <th style={thS}>Компанія</th>
               <th style={thS}>Актив.</th>
+              <th style={thS}>Ref ID</th>
               <th style={thS}>Метадані</th>
               <th style={thS}>Статус / Діагн.</th>
               <th style={thS}>Master бренд</th>
@@ -1386,10 +1567,12 @@ export default function BrandSourceMappingPage() {
             {!loading && data?.rows?.map(row => (
               <tr key={`${row.source_id}-${row.source_brand_id}`}
                   style={{ borderBottom: "1px solid #f3f4f6",
-                           background: row.mapping_status === "rejected" ? "#fef2f2"
-                                     : row.mapping_status === "mapped"   ? "#f0fdf4"
-                                     : row.mapping_status === "auto"     ? "#eff6ff"
-                                     : undefined }}>
+                           background: row.is_active === false            ? "#f9f9f9"
+                                     : row.mapping_status === "rejected"  ? "#fef2f2"
+                                     : row.mapping_status === "mapped"    ? "#f0fdf4"
+                                     : row.mapping_status === "auto"      ? "#eff6ff"
+                                     : undefined,
+                           opacity: row.is_active === false ? 0.7 : 1 }}>
                 <td style={tdS}>
                   <span style={{ fontSize: 11, color: "#6b7280" }}>{row.source_name || row.source_id}</span>
                 </td>
@@ -1410,11 +1593,20 @@ export default function BrandSourceMappingPage() {
                       </span>
                     : <span style={{ color: "#d1d5db" }}>—</span>}
                 </td>
+                <td style={{ ...tdS, color: "#6b7280", fontSize: 11 }}>
+                  <code style={{ fontSize: 10 }}>{row.source_brand_ref_id || "—"}</code>
+                </td>
                 <td style={{ ...tdS, maxWidth: 200 }}>
                   <ExtraFieldsChips fields={row.extra_fields} />
                 </td>
                 <td style={tdS}>
                   <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                    {row.is_active === false && (
+                      <span style={{ background: "#6b7280", color: "#fff", borderRadius: 4,
+                                     padding: "2px 6px", fontSize: 10, fontWeight: 700 }}>
+                        Inactive
+                      </span>
+                    )}
                     <StatusBadge status={row.mapping_status} />
                     <ComputedStatusBadge
                       computedStatus={row.computed_status}
@@ -1500,17 +1692,22 @@ export default function BrandSourceMappingPage() {
                     {row.is_ready_for_create && (
                       <button
                         onClick={() => handleCreateMasterFromMapping(row)}
+                        disabled={!row.is_active || !!row.archived}
+                        title={(!row.is_active || row.archived) ? "Неактивний source-бренд. Створення master заблоковано." : undefined}
                         style={{ padding: "3px 8px", fontSize: 11, fontWeight: 600,
-                                 background: "#f0fdf4", border: "1px solid #34d399",
-                                 borderRadius: 4, cursor: "pointer", color: "#065f46",
-                                 whiteSpace: "nowrap" }}>
+                                 background: (!row.is_active || row.archived) ? "#f3f4f6" : "#f0fdf4",
+                                 border: "1px solid #34d399", borderRadius: 4,
+                                 cursor: (!row.is_active || row.archived) ? "not-allowed" : "pointer",
+                                 color: (!row.is_active || row.archived) ? "#9ca3af" : "#065f46",
+                                 whiteSpace: "nowrap", opacity: (!row.is_active || row.archived) ? 0.5 : 1 }}>
                         Створити
                       </button>
                     )}
                     {row.computed_status === "parent_missing" && (
                       <button
                         onClick={() => setParentRow(row)}
-                        title={`Створити parent бренд [${row.source_parent_uid}] у dim_brand`}
+                        disabled={!row.is_active || !!row.archived}
+                        title={(!row.is_active || row.archived) ? "Неактивний source-бренд. Створення master заблоковано." : `Створити parent бренд [${row.source_parent_uid}] у dim_brand`}
                         style={{ padding: "3px 8px", fontSize: 11, fontWeight: 600,
                                  background: "#fef3c7", border: "1px solid #fbbf24",
                                  borderRadius: 4, cursor: "pointer", color: "#92400e",
@@ -1539,6 +1736,23 @@ export default function BrandSourceMappingPage() {
                         Відхилити
                       </button>
                     )}
+                    {row.archived && isSuperAdmin && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await restoreFromArchive(row.source_id, row.source_brand_id);
+                            setSuccess("Бренд відновлено з архіву");
+                            load();
+                          } catch (e) {
+                            setError(e?.response?.data?.detail || "Помилка відновлення");
+                          }
+                        }}
+                        style={{ padding: "3px 8px", fontSize: 11, color: "#059669",
+                                 background: "#ecfdf5", border: "1px solid #6ee7b7",
+                                 borderRadius: 4, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        ↩ Відновити
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -1564,6 +1778,17 @@ export default function BrandSourceMappingPage() {
           </button>
         </div>
       )}
+
+      {cleanupPreviewData && (
+        <CleanupPreviewModal
+          preview={cleanupPreviewData}
+          busy={cleanupBusy}
+          onConfirm={handleCleanupConfirm}
+          onClose={() => setCleanupPreviewData(null)}
+        />
+      )}
+
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 }

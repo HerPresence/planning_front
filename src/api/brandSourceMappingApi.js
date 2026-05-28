@@ -44,3 +44,14 @@ export const unmapBrand = (source_id, source_brand_id) =>
 
 export const createParentBrand = (source_id, source_brand_id, brand_group = null) =>
   axios.post(`${BASE}/create-parent-brand`, { source_id, source_brand_id, brand_group }).then(r => r.data);
+
+export const cleanupPreview = (source_id = null) =>
+  axios.get(`${BASE}/cleanup-preview`, { params: source_id ? { source_id } : {} }).then(r => r.data);
+
+export const cleanupConfirm = (source_id = null, archive_reason = "superadmin_cleanup") =>
+  axios.post(`${BASE}/cleanup-inactive-brands`, null, {
+    params: { ...(source_id ? { source_id } : {}), archive_reason }
+  }).then(r => r.data);
+
+export const restoreFromArchive = (source_id, source_brand_id) =>
+  axios.post(`${BASE}/restore-from-archive`, { source_id, source_brand_id }).then(r => r.data);

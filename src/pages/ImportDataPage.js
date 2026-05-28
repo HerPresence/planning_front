@@ -475,6 +475,8 @@ const CANONICAL_FIELDS = {
   brands: [
     "brand_uid","brand_name","brand_group",
     "parent_brand_uid","parent_brand_name",
+    "source_level","source_company_name","source_is_active","source_brand_ref_id",
+    "Level_1","Company","valid","brand_id","company_name","is_active",
   ],
   articles: [
     "article_uid","article_name","article_type",
@@ -753,8 +755,8 @@ function BrandsStagingTable({ rows }) {
 
   const groups    = uniq("brand_group");
   const levels    = uniq("source_level");
-  const companies = uniq("company_name");
-  const actives   = uniq("is_active");
+  const companies = uniq("source_company_name");
+  const actives   = uniq("source_is_active");
   const parents   = uniq("parent_brand_name");
 
   const filtered = (rows || []).filter(r => {
@@ -766,8 +768,8 @@ function BrandsStagingTable({ rows }) {
     }
     if (fGroup   && r.brand_group  !== fGroup)   return false;
     if (fLevel   && r.source_level !== fLevel)   return false;
-    if (fCompany && r.company_name !== fCompany) return false;
-    if (fActive  && r.is_active    !== fActive)  return false;
+    if (fCompany && r.source_company_name !== fCompany) return false;
+    if (fActive  && r.source_is_active    !== fActive)  return false;
     if      (fParent === "__none__")              { if (r.parent_brand_name)            return false; }
     else if (fParent)                             { if (r.parent_brand_name !== fParent) return false; }
     if (fError === "yes" && !r.validation_error) return false;
@@ -905,9 +907,9 @@ function BrandsStagingTable({ rows }) {
               <td style={tdS}>{r.brand_name || "—"}</td>
               <td style={{ ...tdS, color: "#6b7280" }}>{r.brand_group || "—"}</td>
               <td style={{ ...tdS, color: "#6b7280" }}>{r.source_level || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}>{r.company_name || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}>{r.is_active || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}><code style={{ fontSize: 9 }}>{r.brand_id || "—"}</code></td>
+              <td style={{ ...tdS, color: "#6b7280" }}>{r.source_company_name || "—"}</td>
+              <td style={{ ...tdS, color: "#6b7280" }}>{r.source_is_active || "—"}</td>
+              <td style={{ ...tdS, color: "#6b7280" }}><code style={{ fontSize: 9 }}>{r.source_brand_ref_id || "—"}</code></td>
               <td style={tdS}>{r.parent_brand_name || "—"}</td>
               <td style={{ ...tdS, color: "#991b1b", fontSize: 10 }}>{r.validation_error || ""}</td>
             </tr>
