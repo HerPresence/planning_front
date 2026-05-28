@@ -52,6 +52,20 @@ function Sidebar({ activePage, setActivePage }) {
         🔗 Відповідність статей
       </div>
     ) : null,
+    canView("importSources") ? (
+      <div key="brandSourceMapping"
+           className={activePage === "brandSourceMapping" ? "menu-item active" : "menu-item"}
+           onClick={() => setActivePage("brandSourceMapping")}>
+        🔗 Відповідність брендів
+      </div>
+    ) : null,
+    canView("importSources") ? (
+      <div key="departmentSourceMapping"
+           className={activePage === "departmentSourceMapping" ? "menu-item active" : "menu-item"}
+           onClick={() => setActivePage("departmentSourceMapping")}>
+        🔗 Відповідність підрозділів
+      </div>
+    ) : null,
     item("importSources", "🔗 Відповідність полів"),
     item("masterL2",      "📂 Master L2"),
     item("masterL1",      "📁 Master L1"),

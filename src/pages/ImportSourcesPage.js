@@ -318,12 +318,22 @@ function ImportSourcesPage({ setActivePage, initialTab = "sources", initialSourc
             >
               📄 Статті
             </button>
-            <button
-              className={`tab-btn ${activeTab === "departments" ? "active" : ""}`}
-              onClick={() => handleTabChange("departments")}
-            >
-              🏢 Підрозділи
-            </button>
+            {setActivePage && (
+              <button
+                className="tab-btn"
+                onClick={() => setActivePage("departmentSourceMapping", { sourceId: selectedSourceId })}
+              >
+                🏢 Підрозділи
+              </button>
+            )}
+            {setActivePage && (
+              <button
+                className="tab-btn"
+                onClick={() => setActivePage("brandSourceMapping")}
+              >
+                🏷 Бренди / НГ
+              </button>
+            )}
           </div>
 
           {/* sources tab toolbar */}

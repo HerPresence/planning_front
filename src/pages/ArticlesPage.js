@@ -1,22 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { usePagePermission } from "../hooks/usePagePermission";
-
-import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import SearchableSelect from "../components/ui/SearchableSelect";
 import LevelCombobox from "../components/ui/LevelCombobox";
-import DataCard from "../components/layout/DataCard";
-import DataTable from "../components/table/DataTable";
-import TableToolbar from "../components/table/TableToolbar";
-
-import {
-  getArticles,
-  createArticle,
-  updateArticle,
-} from "../api/articlesApi";
-
+import { getArticles, createArticle, updateArticle } from "../api/articlesApi";
 import { getPnlStructures } from "../api/pnlStructureApi";
 import { getLevel2, createLevel2, getLevel1, createLevel1 } from "../api/pnlLevelsApi";
+
+// ── Compact styles ────────────────────────────────────────────────────────────
+const thS = {
+  padding: "4px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb",
+  fontWeight: 600, fontSize: 10, color: "#6b7280", background: "#f9fafb",
+  position: "sticky", top: 0, whiteSpace: "nowrap",
+};
+const tdS = { padding: "3px 8px", verticalAlign: "middle", fontSize: 11, lineHeight: 1.35 };
+const inpS = { padding: "4px 7px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 12 };
 
 const emptyForm = {
   article_id:          "",
@@ -183,106 +181,239 @@ function ArticlesPage({ setActivePage }) {
       .filter(Boolean).join(" ").toLowerCase().includes(search.toLowerCase())
   );
 
-  const columns = [
-    {
-      key: "article_id", header: "ID статті",
-      style: { fontFamily: "monospace", fontSize: 12 },
-    },
-    { key: "article_name", header: "Назва статті" },
-    {
-      key: "_type", header: "Тип",
-      render: (row) => <span className="badge">{row.article_type}</span>,
-    },
-    { key: "level1", header: "Level 1" },
-    { key: "level2", header: "Level 2" },
-    { key: "pnl_id", header: "PnL ID" },
-    {
-      key: "uid_expense_article", header: "UUID статті",
-      style: { fontFamily: "monospace", fontSize: 11, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" },
-      cellTitle: (row) => row.uid_expense_article || "",
-      render: (row) => row.uid_expense_article || <span style={{ color: "#bbb" }}>—</span>,
-    },
-    {
-      key: "expense_element", header: "Елемент витрат",
-      style: { maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" },
-      cellTitle: (row) => row.expense_element || "",
-      render: (row) => row.expense_element || <span style={{ color: "#bbb" }}>—</span>,
-    },
-    {
-      key: "expense_company", header: "Компанія",
-      style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
-      cellTitle: (row) => row.expense_company || "",
-      render: (row) => row.expense_company || <span style={{ color: "#bbb" }}>—</span>,
-    },
-    {
-      key: "level1_olap", header: "Level 1 OLAP",
-      style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
-      cellTitle: (row) => row.level1_olap || "",
-      render: (row) => row.level1_olap || <span style={{ color: "#bbb" }}>—</span>,
-    },
-    {
-      key: "level2_olap", header: "Level 2 OLAP",
-      style: { maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" },
-      cellTitle: (row) => row.level2_olap || "",
-      render: (row) => row.level2_olap || <span style={{ color: "#bbb" }}>—</span>,
-    },
-    {
-      key: "_status", header: "Активна",
-      render: (row) => (
-        <span className={row.is_active ? "status active" : "status inactive"}>
-          {row.is_active ? "Активна" : "Неактивна"}
-        </span>
-      ),
-    },
-    {
-      key: "_actions", header: "Дії",
-      thStyle: { textAlign: "center" },
-      style:   { textAlign: "center", whiteSpace: "nowrap" },
-      render: (row) => (
-        <>
-          {canEdit && <button className="icon-btn edit"   onClick={() => openEditModal(row)}>✎</button>}
-          {canEdit && <button className="icon-btn delete" onClick={() => alert("Деактивацію підключимо наступним пакетом")}>×</button>}
-        </>
-      ),
-    },
-  ];
+  const iconBtn = (variant) => {
+    const v = { blue: { bg: "#eff6ff", br: "#bfdbfe", cl: "#1d4ed8" }, red: { bg: "#fef2f2", br: "#fecaca", cl: "#dc2626" } }[variant] || { bg: "#f9fafb", br: "#e5e7eb", cl: "#374151" };
+    return { width: 26, height: 26, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, border: `1px solid ${v.br}`, background: v.bg, color: v.cl, borderRadius: 4, cursor: "pointer" };
+  };
+
+  const thAct = { ...thS, position: "sticky", right: 0, zIndex: 3, background: "#f9fafb", boxShadow: "-2px 0 5px rgba(0,0,0,0.07)" };
+
+  const activeCount   = articles.filter(a => a.is_active !== false).length;
+  const inactiveCount = articles.filter(a => a.is_active === false).length;
+  const dohodCount    = articles.filter(a => a.article_type === "Дохід").length;
+  const vytrataCount  = articles.filter(a => a.article_type === "Витрати").length;
 
   return (
     <>
-      <DataCard
-        title="Статті PnL"
-        subtitle="Довідник статей, які використовуються у PnL-моделі."
-        actions={
-          <>
-            <Button variant="secondary" onClick={() => setActivePage("articleImport")}>
+      <div style={{ background: "#f9fafb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+
+        {/* ── Header ── */}
+        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb",
+                      padding: "10px 20px", display: "flex", alignItems: "center",
+                      justifyContent: "space-between", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>Статті PnL</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>Довідник статей, які використовуються у PnL-моделі.</div>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={() => setActivePage("articleImport")}
+              style={{ padding: "5px 11px", fontSize: 12, fontWeight: 500, border: "1px solid #d1d5db",
+                       borderRadius: 5, background: "#fff", cursor: "pointer", color: "#374151" }}>
               ⬇ Імпорт
-            </Button>
-            <Button variant="secondary" onClick={() => setActivePage("importSources", { tab: "articles" })}>
-              🔗 Відповідність статей
-            </Button>
-            <Button variant="primary" onClick={openAddModal}>
-              + Додати статтю
-            </Button>
-          </>
-        }
-      >
-        {loadError && <div className="error-message">{loadError}</div>}
+            </button>
+            <button onClick={() => setActivePage("importSources", { tab: "articles" })}
+              style={{ padding: "5px 11px", fontSize: 12, fontWeight: 500, border: "1px solid #d1d5db",
+                       borderRadius: 5, background: "#fff", cursor: "pointer", color: "#374151" }}>
+              🔗 Відповідність
+            </button>
+            {canEdit && (
+              <button onClick={openAddModal}
+                style={{ padding: "5px 13px", fontSize: 12, fontWeight: 600, border: "none",
+                         borderRadius: 5, background: "#7c3aed", color: "#fff", cursor: "pointer",
+                         boxShadow: "0 1px 4px rgba(124,58,237,0.25)" }}>
+                + Додати статтю
+              </button>
+            )}
+          </div>
+        </div>
 
-        <TableToolbar
-          filters={[{
-            key: "search", type: "search", label: "Пошук",
-            value: search, onChange: setSearch, placeholder: "Пошук статті...",
-          }]}
-        />
+        {/* ── KPI pills ── */}
+        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb",
+                      padding: "6px 20px", display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+          {[
+            { label: "Всього",      value: articles.length, color: "#374151" },
+            { label: "Активних",   value: activeCount,      color: "#059669" },
+            { label: "Неактивних", value: inactiveCount,    color: "#dc2626" },
+          ].map(({ label, value, color }) => (
+            <span key={label} style={{ display: "inline-flex", alignItems: "baseline", gap: 5,
+                                        padding: "3px 11px", borderRadius: 20, background: "#f3f4f6", fontSize: 12 }}>
+              <span style={{ fontWeight: 700, fontSize: 15, color }}>{value}</span>
+              <span style={{ color: "#6b7280" }}>{label}</span>
+            </span>
+          ))}
+          <span style={{ color: "#e5e7eb", margin: "0 4px" }}>|</span>
+          {[
+            { label: "Дохід",   value: dohodCount,   color: "#059669" },
+            { label: "Витрати", value: vytrataCount, color: "#dc2626" },
+          ].map(({ label, value, color }) => (
+            <span key={label} style={{ display: "inline-flex", alignItems: "baseline", gap: 5,
+                                        padding: "3px 11px", borderRadius: 20, background: "#f3f4f6", fontSize: 12 }}>
+              <span style={{ fontWeight: 700, fontSize: 15, color }}>{value}</span>
+              <span style={{ color: "#6b7280" }}>{label}</span>
+            </span>
+          ))}
+        </div>
 
-        <DataTable
-          columns={columns}
-          rows={filteredArticles}
-          rowKey="article_id"
-          loading={isLoading}
-          emptyMessage="Статей поки немає або нічого не знайдено."
-        />
-      </DataCard>
+        {/* ── Search + count ── */}
+        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb",
+                      padding: "7px 20px", display: "flex", alignItems: "center", gap: 10 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Пошук за ID, назвою, типом, UUID, елементом витрат…"
+            style={{ ...inpS, width: 360 }} />
+          {search && (
+            <button onClick={() => setSearch("")}
+              style={{ padding: "4px 8px", fontSize: 11, border: "1px solid #d1d5db",
+                       borderRadius: 4, cursor: "pointer", background: "#fff", color: "#6b7280" }}>✕</button>
+          )}
+          <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: "auto" }}>
+            {filteredArticles.length} / {articles.length} статей
+          </span>
+        </div>
+
+        {loadError && (
+          <div style={{ margin: "8px 20px", padding: "8px 12px", background: "#fee2e2",
+                        border: "1px solid #fca5a5", borderRadius: 5, fontSize: 13, color: "#991b1b" }}>
+            {loadError}
+          </div>
+        )}
+
+        {/* ── Table ── */}
+        <div style={{ flex: 1, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000, fontSize: 11 }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS, width: 70 }}>PnL ID</th>
+                <th style={thS}>Level 2</th>
+                <th style={thS}>Level 1</th>
+                <th style={{ ...thS, width: 60 }}>Тип</th>
+                <th style={{ ...thS, width: 160 }}>UUID статті</th>
+                <th style={{ ...thS, width: 150 }}>Елемент витрат</th>
+                <th style={{ ...thS, width: 100 }}>Компанія</th>
+                <th style={{ ...thS, width: 110 }}>Level 1 OLAP</th>
+                <th style={{ ...thS, width: 110 }}>Level 2 OLAP</th>
+                <th style={{ ...thS, width: 72 }}>Активна</th>
+                {canEdit && <th style={{ ...thAct, textAlign: "center", width: 56 }}>Дії</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr><td colSpan={canEdit ? 11 : 10}
+                  style={{ ...tdS, textAlign: "center", padding: "28px 0", color: "#9ca3af" }}>
+                  Завантаження…
+                </td></tr>
+              )}
+              {!isLoading && filteredArticles.length === 0 && (
+                <tr><td colSpan={canEdit ? 11 : 10}
+                  style={{ ...tdS, textAlign: "center", padding: "32px 0", color: "#9ca3af" }}>
+                  <div style={{ fontSize: 24, marginBottom: 6 }}>🔍</div>
+                  Статей не знайдено
+                </td></tr>
+              )}
+              {!isLoading && filteredArticles.map(row => (
+                <tr key={row.article_id}
+                  style={{ borderBottom: "1px solid #f3f4f6", background: row.is_active === false ? "#fff5f5" : "#fff" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = row.is_active === false ? "#fef2f2" : "#fafafa"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = row.is_active === false ? "#fff5f5" : "#fff"; }}>
+
+                  {/* PnL ID */}
+                  <td style={{ ...tdS, fontFamily: "monospace", fontWeight: 600, color: "#374151" }}>
+                    {row.pnl_id || <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Level 2 */}
+                  <td style={{ ...tdS, maxWidth: 200 }}>
+                    <span style={{ fontWeight: 500, display: "block", whiteSpace: "nowrap",
+                                   overflow: "hidden", textOverflow: "ellipsis" }}
+                          title={row.level2 || ""}>
+                      {row.level2 || <span style={{ color: "#d1d5db" }}>—</span>}
+                    </span>
+                    {row.article_name && (
+                      <span style={{ fontSize: 10, color: "#9ca3af", display: "block", whiteSpace: "nowrap",
+                                     overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {row.article_name}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Level 1 */}
+                  <td style={{ ...tdS, maxWidth: 160, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={row.level1 || ""}>
+                    {row.level1 || <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Тип */}
+                  <td style={tdS}>
+                    {row.article_type ? (
+                      <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 4,
+                                     fontSize: 10, fontWeight: 600, whiteSpace: "nowrap",
+                                     background: row.article_type === "Дохід" ? "#d1fae5" : "#fee2e2",
+                                     color:      row.article_type === "Дохід" ? "#065f46" : "#991b1b" }}>
+                        {row.article_type}
+                      </span>
+                    ) : <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* UUID */}
+                  <td style={tdS}>
+                    {row.uid_expense_article ? (
+                      <code style={{ fontSize: 10, color: "#6b7280", whiteSpace: "nowrap",
+                                     display: "block", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 155 }}
+                            title={row.uid_expense_article}>
+                        {row.uid_expense_article}
+                      </code>
+                    ) : <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Елемент витрат */}
+                  <td style={{ ...tdS, maxWidth: 145, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={row.expense_element || ""}>
+                    {row.expense_element || <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Компанія */}
+                  <td style={{ ...tdS, maxWidth: 95, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={row.expense_company || ""}>
+                    {row.expense_company || <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Level 1 OLAP */}
+                  <td style={{ ...tdS, maxWidth: 105, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={row.level1_olap || ""}>
+                    {row.level1_olap || <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Level 2 OLAP */}
+                  <td style={{ ...tdS, maxWidth: 105, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={row.level2_olap || ""}>
+                    {row.level2_olap || <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+
+                  {/* Активна */}
+                  <td style={tdS}>
+                    <span style={{ display: "inline-block", padding: "1px 6px", borderRadius: 4,
+                                   fontSize: 10, fontWeight: 600, whiteSpace: "nowrap",
+                                   background: row.is_active !== false ? "#d1fae5" : "#fee2e2",
+                                   color:      row.is_active !== false ? "#065f46" : "#991b1b" }}>
+                      {row.is_active !== false ? "Активна" : "Неактивна"}
+                    </span>
+                  </td>
+
+                  {/* Дії */}
+                  {canEdit && (
+                    <td style={{ ...tdS, textAlign: "center", position: "sticky", right: 0, zIndex: 1,
+                                 background: row.is_active === false ? "#fff5f5" : "#fff",
+                                 boxShadow: "-2px 0 5px rgba(0,0,0,0.04)" }}>
+                      <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                        <button onClick={() => openEditModal(row)} title="Редагувати" style={iconBtn("blue")}>✎</button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {showModal && (
         <Modal
@@ -428,12 +559,17 @@ function ArticlesPage({ setActivePage }) {
             )}
 
             <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setShowModal(false)}>
+              <button type="button" onClick={() => setShowModal(false)}
+                style={{ padding: "7px 18px", fontSize: 13, fontWeight: 500, border: "1px solid #d1d5db",
+                         borderRadius: 5, background: "#fff", color: "#374151", cursor: "pointer" }}>
                 Скасувати
-              </Button>
-              <Button variant="primary" type="submit">
+              </button>
+              <button type="submit"
+                style={{ padding: "7px 18px", fontSize: 13, fontWeight: 600, border: "none",
+                         borderRadius: 5, background: "#7c3aed", color: "#fff", cursor: "pointer",
+                         boxShadow: "0 1px 4px rgba(124,58,237,0.25)" }}>
                 Зберегти
-              </Button>
+              </button>
             </div>
           </form>
         </Modal>

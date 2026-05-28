@@ -30,6 +30,8 @@ import AuditLogPage from "./pages/AuditLogPage";
 import BrandsPage from "./pages/BrandsPage";
 import ImportDataPage from "./pages/ImportDataPage";
 import ArticleSourceMappingPage from "./pages/ArticleSourceMappingPage";
+import BrandSourceMappingPage from "./pages/BrandSourceMappingPage";
+import DepartmentSourceMappingPage from "./pages/DepartmentSourceMappingPage";
 
 function AppContent() {
   const { currentUser, loading, logout, forceChangePassword } = useAuth();
@@ -38,6 +40,7 @@ function AppContent() {
 
   const [importInitialTab,      setImportInitialTab]      = useState("sources");
   const [importInitialSourceId, setImportInitialSourceId] = useState("");
+  const [deptMappingSourceId,   setDeptMappingSourceId]   = useState("");
 
   if (loading) {
     return (
@@ -60,6 +63,9 @@ function AppContent() {
     if (page === "importSources") {
       setImportInitialTab(params.tab || "sources");
       setImportInitialSourceId(params.sourceId || "");
+    }
+    if (page === "departmentSourceMapping") {
+      setDeptMappingSourceId(params.sourceId || "");
     }
     setActivePage(page);
   };
@@ -101,6 +107,8 @@ function AppContent() {
       case "brands":                return <BrandsPage />;
       case "importData":            return <ImportDataPage setActivePage={navigateTo} />;
       case "articleSourceMapping":  return <ArticleSourceMappingPage setActivePage={navigateTo} />;
+      case "brandSourceMapping":      return <BrandSourceMappingPage />;
+      case "departmentSourceMapping": return <DepartmentSourceMappingPage initialSourceId={deptMappingSourceId} setActivePage={navigateTo} />;
 
       default:
         return (
@@ -136,6 +144,8 @@ function AppContent() {
       case "brands":                return "Бренди";
       case "importData":            return "Імпорт даних";
       case "articleSourceMapping":  return "Відповідність статей";
+      case "brandSourceMapping":      return "Відповідність брендів";
+      case "departmentSourceMapping": return "Відповідність підрозділів";
       default:               return "Система планування";
     }
   };
