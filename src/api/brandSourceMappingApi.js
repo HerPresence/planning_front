@@ -55,3 +55,9 @@ export const cleanupConfirm = (source_id = null, archive_reason = "superadmin_cl
 
 export const restoreFromArchive = (source_id, source_brand_id) =>
   axios.post(`${BASE}/restore-from-archive`, { source_id, source_brand_id }).then(r => r.data);
+
+export const getSimilarBrands = (source_brand_name, limit = 10) =>
+  axios.get(`${BASE}/similar-brands`, { params: { source_brand_name, limit } }).then(r => r.data);
+
+export const bulkAutoBind = (pairs) =>
+  axios.post(`${BASE}/bulk-auto-bind`, { pairs }).then(r => r.data);

@@ -19,6 +19,8 @@ import {
   cleanupPreview,
   cleanupConfirm,
   restoreFromArchive,
+  getSimilarBrands,
+  bulkAutoBind,
 } from "../api/brandSourceMappingApi";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -966,6 +968,128 @@ function HelpModal({ onClose }) {
   );
 }
 
+
+// ── Recommendation badge ──────────────────────────────────────────────────────
+const REC_CFG = {
+  AUTO_BIND:      { label: "Авто-bind",    bg: "#d1fae5", color: "#065f46", icon: "⚡" },
+  RECOMMEND_BIND: { label: "Рекомендовано",bg: "#dbeafe", color: "#1e40af", icon: "→" },
+  REVIEW:         { label: "Перевірити",   bg: "#fef3c7", color: "#b45309", icon: "?" },
+  CREATE:         { label: "Створити",     bg: "#fee2e2", color: "#991b1b", icon: "+" },
+};
+function RecommendationBadge({ rec }) {
+  if (!rec) return null;
+  const cfg = REC_CFG[rec] || REC_CFG.REVIEW;
+  return (
+    <span style={{ background: cfg.bg, color: cfg.color, borderRadius: 4,
+                   padding: "2px 7px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+      {cfg.icon} {cfg.label}
+    </span>
+  );
+}
+
+// ── Match score progress bar ──────────────────────────────────────────────────
+function MatchScoreBar({ score }) {
+  if (score == null) return <span style={{ color: "#d1d5db", fontSize: 11 }}>—</span>;
+  const color = score >= 90 ? "#059669" : score >= 70 ? "#d97706" : "#dc2626";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 70 }}>
+      <div style={{ flex: 1, background: "#e5e7eb", borderRadius: 4, height: 6, overflow: "hidden" }}>
+        <div style={{ width: `${score}%`, background: color, height: "100%", borderRadius: 4,
+                      transition: "width 0.3s" }} />
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 600, color, minWidth: 30, textAlign: "right" }}>
+        {score}%
+      </span>
+    </div>
+  );
+}
+
+// ── Suggested brand cell ──────────────────────────────────────────────────────
+function SuggestedBrandCell({ row }) {
+  if (!row.suggested_master_brand_name) {
+    return <span style={{ color: "#d1d5db", fontSize: 11 }}>Не знайдено</span>;
+  }
+  return (
+    <div>
+      <div style={{ fontWeight: 500, fontSize: 12 }}>{row.suggested_master_brand_name}</div>
+      {row.suggested_brand_group && (
+        <div style={{ fontSize: 10, color: "#6b7280" }}>{row.suggested_brand_group}</div>
+      )}
+      {row.mapped_sources_count > 0 && (
+        <div style={{ fontSize: 10, color: "#9ca3af" }}>{row.mapped_sources_count} source(s)</div>
+      )}
+    </div>
+  );
+}
+
+// ── Similar Brands Modal ──────────────────────────────────────────────────────
+function SimilarBrandsModal({ row, onBind, onClose }) {
+  const [similar, setSimilar] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    getSimilarBrands(row.source_brand_name, 10)
+      .then(setSimilar)
+      .catch(() => setSimilar([]))
+      .finally(() => setLoading(false));
+  }, [row.source_brand_name]);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 2000,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}
+         onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 8, padding: 24, maxWidth: 560, width: "92%",
+                    maxHeight: "75vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+           onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+          <div>
+            <strong style={{ fontSize: 15 }}>Схожі master бренди</strong>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+              для: {row.source_brand_name}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18 }}>✕</button>
+        </div>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 24, color: "#9ca3af" }}>Завантаження...</div>
+        ) : similar.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 24, color: "#6b7280" }}>Схожих брендів не знайдено</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                {["Бренд", "Група", "Match", "Sources", "Дія"].map(h => (
+                  <th key={h} style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb",
+                                       fontSize: 11, color: "#6b7280", fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {similar.map(m => (
+                <tr key={m.master_brand_id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                  <td style={{ padding: "6px 8px", fontWeight: 500 }}>{m.master_brand_name}</td>
+                  <td style={{ padding: "6px 8px", color: "#6b7280" }}>{m.master_brand_group || "—"}</td>
+                  <td style={{ padding: "6px 8px" }}><MatchScoreBar score={m.match_score} /></td>
+                  <td style={{ padding: "6px 8px", color: "#9ca3af" }}>{m.mapped_sources_count}</td>
+                  <td style={{ padding: "6px 8px" }}>
+                    <button
+                      onClick={() => { onBind(m.master_brand_id, m.master_brand_name); onClose(); }}
+                      style={{ padding: "3px 10px", background: "#eff6ff", border: "1px solid #93c5fd",
+                               borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#1e40af",
+                               fontWeight: 600 }}>
+                      Прив'язати
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════════════════════
@@ -991,7 +1115,7 @@ export default function BrandSourceMappingPage() {
   const [sourceId,       setSourceId]      = useState("");
   const [sourceGroup,    setSourceGroup]   = useState("");
   const [masterBrandId,  setMasterBrandId] = useState("");
-  const [statusFilter,   setStatusFilter]  = useState("pending");
+  const [statusFilter,   setStatusFilter]  = useState("");
   const [computedStatus, setComputedStatus] = useState("");
   const [sourceChanged,  setSourceChanged] = useState(false);
   const [filterCompany,  setFilterCompany] = useState("");
@@ -1001,6 +1125,10 @@ export default function BrandSourceMappingPage() {
   const [showHelp,       setShowHelp]       = useState(false);
   const [cleanupPreviewData, setCleanupPreviewData] = useState(null);
   const [cleanupBusy,    setCleanupBusy]    = useState(false);
+  const [similarModalRow, setSimilarModalRow] = useState(null);
+  const [filterRec,      setFilterRec]      = useState("");
+  const [selectedRows,   setSelectedRows]   = useState(new Set());
+  const [bulkBinding,    setBulkBinding]    = useState(false);
   const [search,         setSearch]        = useState("");
   const [searchInput,    setSearchInput]   = useState("");
   const [page,           setPage]          = useState(1);
@@ -1021,6 +1149,9 @@ export default function BrandSourceMappingPage() {
     if (filterCompany)  params.company         = filterCompany;
     if (filterLevel)    params.source_level    = filterLevel;
     if (filterActive)   params.source_is_active = filterActive;
+    // NOTE: filterRec (recommendation) is a client-side filter applied after fetch.
+    // Do NOT send it to the server — the server computes recommendations per-page
+    // and cannot paginate by them correctly.
     params.visibility = visibility;
 
     getStagedBrands(params)
@@ -1123,12 +1254,33 @@ export default function BrandSourceMappingPage() {
     getMasterBrands().then(setMasters).catch(() => {});
   };
 
-  const handleSearch = () => { setPage(1); setSearch(searchInput); };
+  // Reset recommendation filter when changing page-level DB filters
+  // (new page load = new rows = old filterRec may no longer apply)
+  const resetPage = () => { setPage(1); setFilterRec(""); };
 
-  const handleFilterStatus = (s) => { setStatusFilter(s); setPage(1); };
-  const handleFilterSource = (v) => { setSourceId(v); setPage(1); };
-  const handleComputedStatus = (s) => { setComputedStatus(s === computedStatus ? "" : s); setPage(1); };
-  const handleSourceChanged = () => { setSourceChanged(v => !v); setPage(1); };
+  const handleSearch = () => { resetPage(); setSearch(searchInput); };
+
+  const handleFilterStatus = (s) => { setStatusFilter(s); resetPage(); };
+  const handleFilterSource = (v) => { setSourceId(v); resetPage(); };
+  const handleComputedStatus = (s) => { setComputedStatus(s === computedStatus ? "" : s); resetPage(); };
+  const handleSourceChanged = () => { setSourceChanged(v => !v); resetPage(); };
+
+  const handleBulkAutoBind = async () => {
+    const rows = data?.rows || [];
+    const pairs = rows
+      .filter(r => r.recommendation === "AUTO_BIND" && r.suggested_master_brand_id && !r.master_brand_id)
+      .map(r => ({ source_id: r.source_id, source_brand_id: r.source_brand_id, master_brand_id: r.suggested_master_brand_id }));
+    if (!pairs.length) { setError("Немає кандидатів для авто-прив'язки"); return; }
+    setBulkBinding(true);
+    try {
+      const res = await bulkAutoBind(pairs);
+      setSuccess(`Авто-прив'язано: ${res.bound} брендів`);
+      setSelectedRows(new Set());
+      load();
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Помилка авто-прив'язки");
+    } finally { setBulkBinding(false); }
+  };
 
   const handleCleanupConfirm = async () => {
     setCleanupBusy(true);
@@ -1231,38 +1383,65 @@ export default function BrandSourceMappingPage() {
           {/* Visibility group */}
           <KpiPill label="Активні"     value={data.active_total ?? data.total} color="#059669"
                    active={visibility === "active"}
-                   onClick={() => { setVisibility("active"); setPage(1); }} />
+                   onClick={() => { setVisibility("active"); resetPage(); }} />
           <KpiPill label="Неактивні"   value={data.inactive_total ?? 0}        color="#b45309"
                    active={visibility === "inactive"}
-                   onClick={() => { setVisibility("inactive"); setPage(1); }} />
+                   onClick={() => { setVisibility("inactive"); resetPage(); }} />
           {(data.archived_total ?? 0) > 0 && (
             <KpiPill label="Архів"     value={data.archived_total}             color="#6b7280"
                      active={visibility === "archived"}
-                     onClick={() => { setVisibility("archived"); setPage(1); }} />
+                     onClick={() => { setVisibility("archived"); resetPage(); }} />
           )}
           <KpiPill label="Всі"         value={(data.active_total ?? 0) + (data.inactive_total ?? 0) + (data.archived_total ?? 0)} color="#374151"
-                   active={visibility === "all"}
-                   onClick={() => { setVisibility("all"); setPage(1); }} />
+                   active={visibility === "all" && !statusFilter}
+                   onClick={() => { setVisibility("all"); setStatusFilter(""); resetPage(); }} />
           <span style={{ color: "#e5e7eb" }}>|</span>
-          {/* Mapping status group */}
-          <KpiPill label="Очікує"      value={data.pending}              color="#92400e"
+          {/* Processing status group (global DB counters) */}
+          <KpiPill label="Всі статуси" value={(data.cnt_unprocessed ?? 0) + (data.cnt_linked ?? 0) + (data.cnt_rejected ?? 0)} color="#374151"
+                   active={!statusFilter}
+                   onClick={() => handleFilterStatus("")} />
+          <KpiPill label="Не оброблено" value={data.cnt_unprocessed ?? data.pending ?? 0} color="#92400e"
                    active={statusFilter === "pending"}
                    onClick={() => handleFilterStatus(statusFilter === "pending" ? "" : "pending")} />
-          <KpiPill label="Прив'язано"  value={data.mapped}               color="#065f46"
-                   active={statusFilter === "mapped"}
-                   onClick={() => handleFilterStatus(statusFilter === "mapped" ? "" : "mapped")} />
-          <KpiPill label="Авто"        value={data.auto_bound ?? 0}      color="#1e40af"
-                   active={statusFilter === "auto"}
-                   onClick={() => handleFilterStatus(statusFilter === "auto" ? "" : "auto")} />
-          <KpiPill label="Відхилено"   value={data.rejected}             color="#991b1b"
+          <KpiPill label="Прив'язано"   value={data.cnt_linked ?? (data.mapped ?? 0) + (data.auto_bound ?? 0)} color="#065f46"
+                   active={statusFilter === "linked" || statusFilter === "mapped" || statusFilter === "auto"}
+                   onClick={() => handleFilterStatus(statusFilter === "linked" ? "" : "linked")} />
+          <KpiPill label="Відхилено"    value={data.cnt_rejected ?? data.rejected ?? 0} color="#991b1b"
                    active={statusFilter === "rejected"}
                    onClick={() => handleFilterStatus(statusFilter === "rejected" ? "" : "rejected")} />
           {(data.source_changed_count ?? 0) > 0 && (
             <>
               <span style={{ color: "#e5e7eb" }}>|</span>
-              <KpiPill label="Source змінено" value={data.source_changed_count} color="#1d4ed8"
+              <KpiPill label="Змінено у джерелі" value={data.source_changed_count} color="#1d4ed8"
                        active={sourceChanged}
                        onClick={handleSourceChanged} />
+            </>
+          )}
+          {/* Recommendation pills — THIS PAGE ONLY, client-side filter */}
+          {((data.rec_auto ?? data.auto_bind_candidates ?? 0) + (data.rec_match ?? data.recommend_bind_count ?? 0) + (data.rec_review ?? data.review_count ?? 0)) > 0 && (
+            <>
+              <span style={{ color: "#e5e7eb" }}>|</span>
+              <span style={{ fontSize: 10, color: "#9ca3af", alignSelf: "center" }}>ця сторінка:</span>
+              {(data.rec_auto ?? data.auto_bind_candidates ?? 0) > 0 && (
+                <KpiPill label="⚡ Авто"         value={data.rec_auto ?? data.auto_bind_candidates} color="#059669"
+                         active={filterRec === "AUTO_BIND"}
+                         onClick={() => setFilterRec(filterRec === "AUTO_BIND" ? "" : "AUTO_BIND")} />
+              )}
+              {(data.rec_match ?? data.recommend_bind_count ?? 0) > 0 && (
+                <KpiPill label="→ Match"          value={data.rec_match ?? data.recommend_bind_count} color="#1e40af"
+                         active={filterRec === "RECOMMEND_BIND"}
+                         onClick={() => setFilterRec(filterRec === "RECOMMEND_BIND" ? "" : "RECOMMEND_BIND")} />
+              )}
+              {(data.rec_review ?? data.review_count ?? 0) > 0 && (
+                <KpiPill label="? Перевірити"     value={data.rec_review ?? data.review_count} color="#b45309"
+                         active={filterRec === "REVIEW"}
+                         onClick={() => setFilterRec(filterRec === "REVIEW" ? "" : "REVIEW")} />
+              )}
+              {(data.rec_create ?? data.create_candidates ?? 0) > 0 && (
+                <KpiPill label="+ Створити"       value={data.rec_create ?? data.create_candidates} color="#7c3aed"
+                         active={filterRec === "CREATE"}
+                         onClick={() => setFilterRec(filterRec === "CREATE" ? "" : "CREATE")} />
+              )}
             </>
           )}
         </div>
@@ -1315,31 +1494,6 @@ export default function BrandSourceMappingPage() {
               </option>
             ))}
           </select>
-        </div>
-
-        {/* Status filter */}
-        <div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 3 }}>Статус</div>
-          <div style={{ display: "flex", gap: 4 }}>
-            {[
-              { val: "",         label: "Всі" },
-              { val: "pending",  label: "Очікує" },
-              { val: "mapped",   label: "Прив'язано" },
-              { val: "auto",     label: "Авто" },
-              { val: "rejected", label: "Відхилено" },
-            ].map(f => (
-              <button key={f.val} onClick={() => handleFilterStatus(f.val)}
-                style={{
-                  padding: "5px 12px", fontSize: 12, border: "1px solid #d1d5db",
-                  borderRadius: 4, cursor: "pointer",
-                  background: statusFilter === f.val ? "var(--primary)" : "#fff",
-                  color:      statusFilter === f.val ? "#fff" : "#374151",
-                  fontWeight: statusFilter === f.val ? 700 : 400,
-                }}>
-                {f.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Computed status filter */}
@@ -1452,6 +1606,20 @@ export default function BrandSourceMappingPage() {
           )}
         </div>
 
+        {/* Recommendation filter */}
+        <div style={{ alignSelf: "flex-end" }}>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 3 }}>Рекомендація</div>
+          <select value={filterRec} onChange={e => { setFilterRec(e.target.value); setPage(1); }}
+            style={{ padding: "6px 8px", border: filterRec ? "1px solid #3b82f6" : "1px solid #d1d5db",
+                     borderRadius: 4, fontSize: 12, background: filterRec ? "#eff6ff" : "#fff" }}>
+            <option value="">Всі</option>
+            <option value="AUTO_BIND">⚡ AUTO_BIND</option>
+            <option value="RECOMMEND_BIND">→ RECOMMEND</option>
+            <option value="REVIEW">? REVIEW</option>
+            <option value="CREATE">+ CREATE</option>
+          </select>
+        </div>
+
         {/* Help button */}
         <button
           onClick={() => setShowHelp(true)}
@@ -1530,6 +1698,19 @@ export default function BrandSourceMappingPage() {
             (недоступно для фільтра «Відхилено»)
           </span>
         )}
+
+        {/* Bulk Auto-bind */}
+        {(data?.auto_bind_candidates ?? 0) > 0 && (
+          <button
+            onClick={handleBulkAutoBind}
+            disabled={bulkBinding}
+            title={`Авто-прив'язати всі ${data.auto_bind_candidates} AUTO_BIND кандидати`}
+            style={{ padding: "6px 14px", background: "#d1fae5", border: "1px solid #34d399",
+                     borderRadius: 4, cursor: "pointer", fontSize: 13, color: "#065f46",
+                     fontWeight: 600 }}>
+            {bulkBinding ? "..." : `⚡ Bind all AUTO (${data?.auto_bind_candidates ?? 0})`}
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -1537,34 +1718,54 @@ export default function BrandSourceMappingPage() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={thS}>Джерело</th>
-              <th style={thS}>Source Brand ID</th>
-              <th style={thS}>Назва (джерело)</th>
-              <th style={thS}>Група</th>
-              <th style={thS}>Рівень</th>
-              <th style={thS}>Компанія</th>
-              <th style={thS}>Актив.</th>
-              <th style={thS}>Ref ID</th>
-              <th style={thS}>Метадані</th>
-              <th style={thS}>Статус / Діагн.</th>
-              <th style={thS}>Master бренд</th>
-              <th style={{ ...thS, width: 160, textAlign: "center" }}>Дії</th>
+              <th style={thS}>Source Brand</th>
+              <th style={{ ...thS, minWidth: 160 }}>Suggested Master</th>
+              <th style={{ ...thS, width: 90 }}>Match</th>
+              <th style={{ ...thS, width: 120 }}>Рекомендація</th>
+              <th style={{ ...thS, width: 100 }}>Статус</th>
+              <th style={{ ...thS, width: 180, textAlign: "center" }}>Дії</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>
+              <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>
                 Завантаження...
               </td></tr>
             )}
             {!loading && (!data?.rows || data.rows.length === 0) && (
-              <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#9ca3af" }}>
-                {statusFilter === "pending"
-                  ? "Немає pending брендів — всі прив'язані або відхилені"
-                  : "Немає даних за обраними фільтрами"}
+              <tr><td colSpan={6} style={{ padding: 32, textAlign: "center" }}>
+                {!statusFilter && (data?.total ?? 0) === 0 ? (
+                  <div>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+                    <div style={{ fontWeight: 600, color: "#374151", marginBottom: 4 }}>Немає брендів в базі</div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Імпортуйте бренди через Import Center, щоб почати маппінг.</div>
+                  </div>
+                ) : statusFilter === "pending" && (data?.cnt_linked ?? 0) > 0 ? (
+                  <div>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                    <div style={{ fontWeight: 600, color: "#374151", marginBottom: 4 }}>Усі бренди оброблені</div>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
+                      Прив'язано: <strong>{data.cnt_linked}</strong>
+                      {(data.cnt_rejected ?? 0) > 0 && <span> · Відхилено: <strong>{data.cnt_rejected}</strong></span>}
+                    </div>
+                    <button onClick={() => handleFilterStatus("linked")}
+                      style={{ padding: "7px 18px", background: "#065f46", color: "#fff",
+                               border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                      Показати прив'язані →
+                    </button>
+                  </div>
+                ) : statusFilter === "linked" ? (
+                  <span style={{ color: "#9ca3af" }}>Немає прив'язаних записів.</span>
+                ) : statusFilter === "pending" ? (
+                  <span style={{ color: "#9ca3af" }}>Немає необроблених брендів</span>
+                ) : (
+                  <span style={{ color: "#9ca3af" }}>Немає даних за обраними фільтрами</span>
+                )}
               </td></tr>
             )}
-            {!loading && data?.rows?.map(row => (
+            {!loading && (data?.rows || [])
+              .filter(row => !filterRec || row.recommendation === filterRec)
+              .map(row => (
               <tr key={`${row.source_id}-${row.source_brand_id}`}
                   style={{ borderBottom: "1px solid #f3f4f6",
                            background: row.is_active === false            ? "#f9f9f9"
@@ -1574,31 +1775,46 @@ export default function BrandSourceMappingPage() {
                                      : undefined,
                            opacity: row.is_active === false ? 0.7 : 1 }}>
                 <td style={tdS}>
-                  <span style={{ fontSize: 11, color: "#6b7280" }}>{row.source_name || row.source_id}</span>
-                </td>
-                <td style={tdS}>
-                  <code style={{ fontSize: 10, background: "#f9fafb", padding: "1px 5px",
-                                 borderRadius: 3, color: "#374151" }}>
-                    {row.source_brand_id}
-                  </code>
-                </td>
-                <td style={{ ...tdS, fontWeight: 500 }}>{row.source_brand_name || "—"}</td>
-                <td style={{ ...tdS, color: "#6b7280", fontSize: 11 }}>{row.source_brand_group || "—"}</td>
-                <td style={{ ...tdS, color: "#6b7280", fontSize: 11 }}>{row.source_level || "—"}</td>
-                <td style={{ ...tdS, color: "#6b7280", fontSize: 11 }}>{row.source_company_name || "—"}</td>
-                <td style={{ ...tdS, fontSize: 11 }}>
-                  {row.source_is_active !== undefined && row.source_is_active !== null && row.source_is_active !== ""
-                    ? <span style={{ color: ["true","1","yes"].includes(String(row.source_is_active).toLowerCase()) ? "#059669" : "#6b7280" }}>
-                        {row.source_is_active}
-                      </span>
-                    : <span style={{ color: "#d1d5db" }}>—</span>}
-                </td>
-                <td style={{ ...tdS, color: "#6b7280", fontSize: 11 }}>
-                  <code style={{ fontSize: 10 }}>{row.source_brand_ref_id || "—"}</code>
-                </td>
-                <td style={{ ...tdS, maxWidth: 200 }}>
-                  <ExtraFieldsChips fields={row.extra_fields} />
-                </td>
+                   <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 1 }}>
+                     {row.source_name || `src:${row.source_id}`}
+                   </div>
+                   <div style={{ fontWeight: 600, fontSize: 12 }}>{row.source_brand_name || "—"}</div>
+                   <div style={{ display: "flex", gap: 5, marginTop: 2, flexWrap: "wrap" }}>
+                     {row.source_brand_group && (
+                       <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6",
+                                      padding: "0 4px", borderRadius: 3 }}>
+                         {row.source_brand_group}
+                       </span>
+                     )}
+                     {row.source_level && (
+                       <span style={{ fontSize: 10, color: "#9ca3af" }}>L:{row.source_level}</span>
+                     )}
+                     {row.source_company_name && (
+                       <span style={{ fontSize: 10, color: "#9ca3af" }}>{row.source_company_name}</span>
+                     )}
+                   </div>
+                 </td>
+                 {/* Suggested master / current master */}
+                 <td style={tdS}>
+                   {(row.mapping_status === "mapped" || row.mapping_status === "auto") ? (
+                     <div>
+                       <div style={{ fontWeight: 500, fontSize: 12, color: "#065f46" }}>{row.master_brand_name || "—"}</div>
+                       {row.master_brand_uid && <div style={{ fontSize: 10, color: "#9ca3af" }}>{row.master_brand_uid}</div>}
+                       {row.master_brand_group && <div style={{ fontSize: 10, color: "#6b7280" }}>{row.master_brand_group}</div>}
+                       <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
+                         {row.mapping_status === "auto" ? "⚡ Авто" : "✋ Вручну"}
+                         {row.mapped_at && <span> · {row.mapped_at.slice(0, 10)}</span>}
+                         {row.mapped_by && <span> · {row.mapped_by}</span>}
+                       </div>
+                     </div>
+                   ) : (
+                     <SuggestedBrandCell row={row} />
+                   )}
+                 </td>
+                 {/* Match score */}
+                 <td style={{ ...tdS, minWidth: 90 }}>
+                   <MatchScoreBar score={row.match_score} />
+                 </td>
                 <td style={tdS}>
                   <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
                     {row.is_active === false && (
@@ -1606,6 +1822,9 @@ export default function BrandSourceMappingPage() {
                                      padding: "2px 6px", fontSize: 10, fontWeight: 700 }}>
                         Inactive
                       </span>
+                    )}
+                    {row.recommendation && (row.mapping_status === "pending" || !row.mapping_status) && (
+                      <RecommendationBadge rec={row.recommendation} />
                     )}
                     <StatusBadge status={row.mapping_status} />
                     <ComputedStatusBadge
@@ -1679,6 +1898,26 @@ export default function BrandSourceMappingPage() {
                 </td>
                 <td style={{ ...tdS, textAlign: "center" }}>
                   <div style={{ display: "flex", gap: 4, justifyContent: "center", flexWrap: "wrap" }}>
+                    {/* Smart quick action */}
+                    {(!row.mapping_status || row.mapping_status === "pending") && row.recommendation === "AUTO_BIND" && row.suggested_master_brand_id && (
+                      <button
+                        onClick={() => handleBind(row.source_id, row.source_brand_id, row.suggested_master_brand_id)}
+                        style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700,
+                                 background: "#d1fae5", border: "1px solid #34d399",
+                                 borderRadius: 4, cursor: "pointer", color: "#065f46" }}
+                        title={`Авто → ${row.suggested_master_brand_name}`}>
+                        ⚡ Auto
+                      </button>
+                    )}
+                    {(!row.mapping_status || row.mapping_status === "pending") && (row.recommendation === "REVIEW" || row.recommendation === "RECOMMEND_BIND") && (
+                      <button
+                        onClick={() => setSimilarModalRow(row)}
+                        style={{ padding: "3px 8px", fontSize: 11,
+                                 background: "#fef3c7", border: "1px solid #fcd34d",
+                                 borderRadius: 4, cursor: "pointer", color: "#92400e" }}>
+                        🔍 Схожі
+                      </button>
+                    )}
                     {row.mapping_status !== "rejected" && (
                       <button
                         onClick={() => { setBindMode("bind"); setBindRow(row); }}
@@ -1762,17 +2001,31 @@ export default function BrandSourceMappingPage() {
       </div>
 
       {/* Pagination */}
-      {data && data.total > PAGE_SIZE && (
+      {data && data.total > 0 && (
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", fontSize: 13 }}>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
             className="btn btn-secondary" style={{ padding: "4px 12px", fontSize: 12 }}>
             ← Назад
           </button>
-          <span style={{ color: "#6b7280" }}>
-            Стор. {page} / {Math.ceil(data.total / PAGE_SIZE)} — показано {data.rows?.length} з {data.total}
-          </span>
+          {(() => {
+            const totalPages  = data.total_pages ?? Math.ceil(data.total / PAGE_SIZE);
+            const rowsOnPage  = filterRec
+              ? (data.rows || []).filter(r => r.recommendation === filterRec).length
+              : (data.rows?.length ?? 0);
+            const rowStart    = (page - 1) * PAGE_SIZE + 1;
+            const rowEnd      = Math.min(page * PAGE_SIZE, data.total);
+            return (
+              <span style={{ color: "#6b7280" }}>
+                Записи {rowStart}–{rowEnd} із {data.total.toLocaleString("uk-UA")}
+                {filterRec && rowsOnPage !== rowEnd - rowStart + 1
+                  ? <span style={{ color: "#b45309" }}> · {rowsOnPage} відповідають фільтру «{filterRec}»</span>
+                  : null}
+                {totalPages > 1 && <span> · Стор. {page}/{totalPages}</span>}
+              </span>
+            );
+          })()}
           <button onClick={() => setPage(p => p + 1)}
-                  disabled={page >= Math.ceil(data.total / PAGE_SIZE)}
+                  disabled={page >= (data.total_pages ?? Math.ceil(data.total / PAGE_SIZE))}
             className="btn btn-secondary" style={{ padding: "4px 12px", fontSize: 12 }}>
             Далі →
           </button>
@@ -1789,6 +2042,17 @@ export default function BrandSourceMappingPage() {
       )}
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+
+      {similarModalRow && (
+        <SimilarBrandsModal
+          row={similarModalRow}
+          onBind={(masterId, masterName) => {
+            handleBind(similarModalRow.source_id, similarModalRow.source_brand_id, masterId);
+            setSimilarModalRow(null);
+          }}
+          onClose={() => setSimilarModalRow(null)}
+        />
+      )}
     </div>
   );
 }

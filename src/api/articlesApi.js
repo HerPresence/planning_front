@@ -28,6 +28,23 @@ export async function createArticle(form) {
   return res.data;
 }
 
+export async function exportCsv(filters = {}, selectedIds = []) {
+  const body = { ...filters, selected_ids: selectedIds };
+  const res = await axios.post(`${API_URL}/export-csv`, body, { responseType: "blob" });
+
+  // Trigger browser download
+  const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv;charset=utf-8" }));
+  const now = new Date();
+  const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}_${String(now.getHours()).padStart(2,"0")}-${String(now.getMinutes()).padStart(2,"0")}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pnl_articles_${ts}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function mergePreview(targetArticleId, sourceArticleIds) {
   const res = await axios.post(`${API_URL}/merge-preview`, {
     target_article_id: targetArticleId,

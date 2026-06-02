@@ -15,8 +15,14 @@ export const previewEngineSource  = (sourceId)      => axios.post(`${BASE}/previ
 export const loadToStaging = (sourceId, params = {}) =>
   axios.post(`${BASE}/load/${sourceId}`, null, { params }).then(r => r.data);
 
-export const getStagingPreview = (batchId, statusFilter = null, limit = 500) =>
-  axios.get(`${BASE}/staging/${batchId}`, { params: { status_filter: statusFilter || undefined, limit } }).then(r => r.data);
+// params: { status_filter, page, page_size, search, period_month }
+export const getStagingPreview = (batchId, statusFilterOrParams = null, limit = 100) => {
+  // Support both old (batchId, statusFilter, limit) and new (batchId, params) call signatures
+  const params = (statusFilterOrParams && typeof statusFilterOrParams === "object")
+    ? { limit, ...statusFilterOrParams }
+    : { status_filter: statusFilterOrParams || undefined, limit };
+  return axios.get(`${BASE}/staging/${batchId}`, { params }).then(r => r.data);
+};
 
 export const commitBatch = (batchId) =>
   axios.post(`${BASE}/commit/${batchId}`).then(r => r.data);
@@ -28,6 +34,12 @@ export const deleteBatch       = (batchId, deleteFact = false) =>
 
 export const getFactTurnover = (params = {}) =>
   axios.get(`${BASE}/fact-turnover`, { params }).then(r => r.data);
+
+export const getFactTurnoverDeptOptions = (search = "", limit = 50) =>
+  axios.get(`${BASE}/fact-turnover/filter-options/departments`, { params: { search, limit } }).then(r => r.data);
+
+export const getFactTurnoverPGOptions = (search = "", limit = 50) =>
+  axios.get(`${BASE}/fact-turnover/filter-options/product-groups`, { params: { search, limit } }).then(r => r.data);
 
 export const stagingBulkUpdate = (batchId, payload) =>
   axios.post(`${BASE}/staging/${batchId}/bulk-update`, payload).then(r => r.data);

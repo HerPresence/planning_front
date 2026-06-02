@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import axios from "axios";
 import {
   getEngineSources,
@@ -60,83 +60,84 @@ function fmtNum(v, dec = 2) {
   return n.toLocaleString("uk-UA", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
-// ── Shared styles ─────────────────────────────────────────────────────────────
+// ── Debounce hook ─────────────────────────────────────────────────────────────
 
-const thS = {
-  padding: "4px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb",
-  fontWeight: 600, fontSize: 10, color: "#6b7280", background: "#f9fafb",
-  position: "sticky", top: 0, whiteSpace: "nowrap",
-};
-const tdS = { padding: "3px 8px", verticalAlign: "middle", fontSize: 11, lineHeight: 1.35 };
-const inS = {
-  width: "100%", padding: "4px 7px", border: "1px solid #d1d5db",
-  borderRadius: 4, fontSize: 12, boxSizing: "border-box",
-};
+function useDebounce(value, delay = 400) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
-const secS = {
-  background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
-  padding: "14px 16px", marginBottom: 12,
-};
-const secTitleS = {
-  fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 10,
-  display: "flex", alignItems: "center", gap: 6,
-};
+// ── UID cell with clipboard copy ──────────────────────────────────────────────
 
-const btnPri = (disabled) => ({
-  padding: "6px 16px", fontSize: 12, fontWeight: 600, border: "none",
-  borderRadius: 5, background: disabled ? "#c4b5fd" : "#7c3aed", color: "#fff",
-  cursor: disabled ? "not-allowed" : "pointer",
-  boxShadow: disabled ? "none" : "0 1px 4px rgba(124,58,237,0.25)",
-});
-const btnSec = {
-  padding: "6px 14px", fontSize: 12, fontWeight: 500,
-  border: "1px solid #d1d5db", borderRadius: 5,
-  background: "#fff", color: "#374151", cursor: "pointer",
-};
-const btnGhost = {
-  padding: "4px 10px", fontSize: 11, border: "1px solid #d1d5db",
-  borderRadius: 4, background: "#fff", color: "#6b7280", cursor: "pointer",
-};
+function UIDCell({ value, maxWidth = 160 }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }).catch(() => {});
+  };
+  return (
+    <span className="uid-cell">
+      <span className="uid-value" style={{ maxWidth }} title={value}>{value}</span>
+      <button className={`uid-copy${copied ? " copied" : ""}`} onClick={handleCopy} title="Скопіювати">
+        {copied ? "✓" : "⎘"}
+      </button>
+    </span>
+  );
+}
 
 // ── Badges ────────────────────────────────────────────────────────────────────
 
 const STATUS_CFG = {
-  loading:     { label: "Завантаження...", bg: "#fef3c7", color: "#92400e" },
-  loaded:      { label: "У staging",      bg: "#dbeafe", color: "#1e40af" },
-  committing:  { label: "Запис...",        bg: "#e0e7ff", color: "#3730a3" },
-  committed:   { label: "Записано",        bg: "#d1fae5", color: "#065f46" },
-  failed:      { label: "Помилка",         bg: "#fee2e2", color: "#991b1b" },
-  rolled_back: { label: "Відкат",          bg: "#f3f4f6", color: "#6b7280" },
+  loading:     { label: "Завантаження...", bg: "var(--warning-bg)",  color: "var(--warning)" },
+  loaded:      { label: "У staging",      bg: "var(--info-bg)",     color: "var(--info)" },
+  committing:  { label: "Запис...",        bg: "#e0e7ff",            color: "#3730a3" },
+  committed:   { label: "Записано",        bg: "var(--success-bg)", color: "var(--success)" },
+  failed:      { label: "Помилка",         bg: "var(--danger-bg)",  color: "var(--danger)" },
+  rolled_back: { label: "Відкат",          bg: "var(--gray-100)",   color: "var(--text-muted)" },
 };
 
 function StatusBadge({ status }) {
-  const cfg = STATUS_CFG[status] || { label: status, bg: "#f3f4f6", color: "#374151" };
+  const cfg = STATUS_CFG[status] || { label: status, bg: "var(--gray-100)", color: "var(--text-secondary)" };
   return (
-    <span style={{ background: cfg.bg, color: cfg.color, borderRadius: 4,
-                   padding: "2px 8px", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap" }}>
+    <span style={{ background: cfg.bg, color: cfg.color, borderRadius: "var(--radius-md)",
+                   padding: "2px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
       {cfg.label}
     </span>
   );
 }
 
-const V_BADGE = {
-  valid:   { background: "#d1fae5", color: "#065f46",  borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
-  invalid: { background: "#fee2e2", color: "#991b1b",  borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
-  pending: { background: "#f3f4f6", color: "#374151",  borderRadius: 4, padding: "2px 7px", fontSize: 10 },
+const V_BADGE_CLASS = {
+  valid:   "status active",
+  invalid: "status total",
+  pending: "status inactive",
 };
 
+function ValidationBadge({ status }) {
+  const cls = V_BADGE_CLASS[status] || "status inactive";
+  const label = status === "valid" ? "valid" : status === "invalid" ? "invalid" : status || "pending";
+  return <span className={cls}>{label}</span>;
+}
+
 const MAP_BADGE = {
-  not_set: { label: "—",       background: "#f3f4f6", color: "#9ca3af" },
-  manual:  { label: "вручну",  background: "#dbeafe", color: "#1e40af" },
-  auto:    { label: "авто",    background: "#d1fae5", color: "#065f46" },
-  error:   { label: "помилка", background: "#fee2e2", color: "#991b1b" },
+  not_set: { label: "—",       bg: "var(--gray-100)",    color: "var(--text-muted)" },
+  manual:  { label: "вручну",  bg: "var(--info-bg)",     color: "var(--info)" },
+  auto:    { label: "авто",    bg: "var(--success-bg)",  color: "var(--success)" },
+  error:   { label: "помилка", bg: "var(--danger-bg)",   color: "var(--danger)" },
 };
 
 function MappingBadge({ status }) {
   const cfg = MAP_BADGE[status] || MAP_BADGE.not_set;
   return (
-    <span style={{ ...cfg, borderRadius: 4, padding: "2px 6px", fontSize: 10,
-                   fontWeight: 500, whiteSpace: "nowrap" }}>
+    <span style={{ background: cfg.bg, color: cfg.color, borderRadius: "var(--radius-sm)",
+                   padding: "2px 6px", fontSize: 10, fontWeight: 500, whiteSpace: "nowrap" }}>
       {cfg.label}
     </span>
   );
@@ -147,29 +148,25 @@ function MappingBadge({ status }) {
 function RawRowModal({ row, onClose }) {
   if (!row) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
-                  display: "flex", alignItems: "center", justifyContent: "center" }}
-         onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 8, padding: 24, maxWidth: 760, width: "90%",
-                    maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
-           onClick={e => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-          <strong>Row #{row.id}</strong>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal large" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Row #{row.id}</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        {row.validation_error && (
-          <div style={{ padding: "8px 12px", background: "#fee2e2", borderRadius: 6,
-                        marginBottom: 12, fontSize: 13, color: "#991b1b" }}>
-            {row.validation_error}
-          </div>
-        )}
-        {row.raw_row && (
-          <pre style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 4,
-                        padding: "10px 12px", fontSize: 11, fontFamily: "monospace",
-                        overflowX: "auto", whiteSpace: "pre-wrap", maxHeight: 360 }}>
-            {typeof row.raw_row === "string" ? row.raw_row : JSON.stringify(row.raw_row, null, 2)}
-          </pre>
-        )}
+        <div className="modal-body">
+          {row.validation_error && (
+            <div className="error-message" style={{ marginBottom: 12 }}>{row.validation_error}</div>
+          )}
+          {row.raw_row && (
+            <pre style={{ background: "var(--gray-50)", border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-md)", padding: "10px 12px", fontSize: 11,
+                          fontFamily: "var(--font-mono)", overflowX: "auto",
+                          whiteSpace: "pre-wrap", maxHeight: 360, margin: 0 }}>
+              {typeof row.raw_row === "string" ? row.raw_row : JSON.stringify(row.raw_row, null, 2)}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -203,54 +200,46 @@ function BatchDetailModal({ batch, onClose, onDelete, onViewStaging }) {
     onClose();
   };
 
-  const f = (label, value) => (
-    <div style={{ display: "flex", borderBottom: "1px solid #f3f4f6", padding: "5px 0" }}>
-      <div style={{ width: 200, color: "#6b7280", fontSize: 12, flexShrink: 0 }}>{label}</div>
+  const Row = ({ label, value }) => (
+    <div style={{ display: "flex", borderBottom: "1px solid var(--gray-100)", padding: "5px 0" }}>
+      <div style={{ width: 200, color: "var(--text-muted)", fontSize: 12, flexShrink: 0 }}>{label}</div>
       <div style={{ fontSize: 12, fontWeight: 500 }}>{value ?? "—"}</div>
     </div>
   );
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
-                  display: "flex", alignItems: "center", justifyContent: "center" }}
-         onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 8, padding: 28, maxWidth: 620, width: "90%",
-                    maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
-           onClick={e => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
           <div>
-            <strong style={{ fontSize: 16 }}>Batch #{batch.id}</strong>
+            <h2>Batch #{batch.id}</h2>
             <div style={{ marginTop: 4 }}><StatusBadge status={batch.status} /></div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22 }}>✕</button>
+          <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div style={{ marginBottom: 16 }}>
-          {f("Джерело", batch.source_name || batch.source_id)}
-          {f("Тип імпорту", batch.import_type_code)}
-          {f("Таблиця-ціль", batch.target_table)}
-          {periodStr && f("Вибраний період", periodStr)}
-          {batch.replace_mode && f("Режим заміни", batch.replace_mode)}
-          {batch.period_field && f("Поле дати", batch.period_field)}
-          {f("Рядків у джерелі", batch.rows_total)}
-          {f("Записано у staging", batch.rows_loaded)}
-          {f("Валідних", batch.rows_valid)}
-          {f("Невалідних", batch.rows_invalid)}
-          {f("Записано у ціль", batch.rows_loaded_to_target)}
-          {f("Початок", batch.started_at?.slice(0, 16).replace("T", " "))}
-          {f("Завершено", batch.finished_at?.slice(0, 16).replace("T", " "))}
-          {batch.error_message && f("Помилка", batch.error_message)}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {(isLoaded || isCommitted) && (
-            <button style={btnSec} onClick={() => { onViewStaging(batch); onClose(); }}>
-              Переглянути staging
-            </button>
-          )}
-          <button style={{ padding: "6px 14px", border: "1px solid #fca5a5", borderRadius: 5,
-                           background: "#fee2e2", color: "#991b1b", cursor: "pointer", fontSize: 12 }}
-            onClick={handleDelete}>
-            Видалити
-          </button>
+        <div className="modal-body">
+          <Row label="Джерело"        value={batch.source_name || batch.source_id} />
+          <Row label="Тип імпорту"    value={batch.import_type_code} />
+          <Row label="Таблиця-ціль"   value={batch.target_table} />
+          {periodStr && <Row label="Вибраний період"  value={periodStr} />}
+          {batch.replace_mode && <Row label="Режим заміни" value={batch.replace_mode} />}
+          {batch.period_field && <Row label="Поле дати"    value={batch.period_field} />}
+          <Row label="Рядків у джерелі"   value={batch.rows_total} />
+          <Row label="Записано у staging" value={batch.rows_loaded} />
+          <Row label="Валідних"           value={batch.rows_valid} />
+          <Row label="Невалідних"         value={batch.rows_invalid} />
+          <Row label="Записано у ціль"    value={batch.rows_loaded_to_target} />
+          <Row label="Початок"   value={batch.started_at?.slice(0, 16).replace("T", " ")} />
+          <Row label="Завершено" value={batch.finished_at?.slice(0, 16).replace("T", " ")} />
+          {batch.error_message && <Row label="Помилка" value={batch.error_message} />}
+          <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+            {(isLoaded || isCommitted) && (
+              <button className="btn btn-secondary" onClick={() => { onViewStaging(batch); onClose(); }}>
+                Переглянути staging
+              </button>
+            )}
+            <button className="btn btn-danger" onClick={handleDelete}>Видалити</button>
+          </div>
         </div>
       </div>
     </div>
@@ -324,85 +313,72 @@ function BulkUpdateModal({ batchId, staging, statusFilter, onClose, onApplied })
     } finally { setApplying(false); }
   };
 
-  const fldS = { display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 };
-  const lblS = { fontSize: 12, fontWeight: 600, color: "#374151" };
-  const selS = { padding: "5px 7px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 13, width: "100%" };
-
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
-                  display: "flex", alignItems: "center", justifyContent: "center" }}
-         onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 8, padding: 28, maxWidth: 560, width: "90%",
-                    maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
-           onClick={e => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
-          <strong style={{ fontSize: 16 }}>Масове заповнення полів</strong>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Масове заповнення полів</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-
-        <div style={{ padding: "10px 14px", background: "#eff6ff", border: "1px solid #bfdbfe",
-                      borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
-          Поточна вибірка: <strong>{affectedCount}</strong> рядків
-          {statusFilter && <span style={{ marginLeft: 8, fontSize: 12, color: "#6b7280" }}>
-            (фільтр: <em>{statusFilter === "invalid" ? "тільки помилки" : "тільки валідні"}</em>)
-          </span>}
-        </div>
-
-        <div style={fldS}>
-          <label style={lblS}>Поле для заміни</label>
-          <select value={targetField}
-            onChange={e => { setTargetField(e.target.value); setMasterId(""); setSearch(""); }}
-            style={selS}>
-            <option value="department">Підрозділ</option>
-            <option value="brand">Бренд / НГ</option>
-          </select>
-        </div>
-
-        <div style={fldS}>
-          <label style={lblS}>Значення з довідника</label>
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder={`Пошук ${targetField === "department" ? "підрозділу" : "бренду"}...`}
-            style={{ ...selS, marginBottom: 6 }} />
-          <select value={masterId} onChange={e => setMasterId(e.target.value)}
-            size={Math.min(filteredOptions.length + 1, 8)}
-            style={{ ...selS, minHeight: 80 }}>
-            <option value="">— оберіть —</option>
-            {filteredOptions.map(o =>
-              targetField === "department"
-                ? <option key={o.department_id} value={o.department_id}>
-                    {[o.holding_name, o.organization_name, o.department_name].filter(Boolean).join(" / ")}
-                  </option>
-                : <option key={o.id} value={o.id}>
-                    {o.brand_name}{o.brand_uid ? ` [${o.brand_uid}]` : ""}
-                  </option>
-            )}
-          </select>
-        </div>
-
-        {masterId && (
-          <div style={{ padding: "8px 12px", background: "#f0fdf4", border: "1px solid #86efac",
-                        borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
-            Буде застосовано: <strong>{selectedLabel()}</strong> до{" "}
-            <strong>{affectedCount}</strong> рядків
+        <div className="modal-body">
+          <div className="note" style={{ marginTop: 0, marginBottom: 16, background: "var(--info-bg)",
+                                         border: "1px solid var(--info-border)", color: "var(--info)" }}>
+            Поточна вибірка: <strong>{affectedCount}</strong> рядків
+            {statusFilter && <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>
+              (фільтр: <em>{statusFilter === "invalid" ? "тільки помилки" : "тільки валідні"}</em>)
+            </span>}
           </div>
-        )}
-        {err && (
-          <div style={{ padding: "8px 12px", background: "#fee2e2", borderRadius: 6,
-                        fontSize: 13, color: "#991b1b", marginBottom: 12 }}>{err}</div>
-        )}
-        {result && (
-          <div style={{ padding: "10px 14px", background: "#d1fae5", border: "1px solid #6ee7b7",
-                        borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
-            <strong>Готово!</strong> Оновлено {result.rows_updated} рядків.
-            Валідних: <strong>{result.staging?.valid ?? "—"}</strong>,
-            помилок: <strong>{result.staging?.invalid ?? "—"}</strong>.
+
+          <div className="form-field" style={{ marginBottom: 12 }}>
+            <label>Поле для заміни</label>
+            <select value={targetField}
+              onChange={e => { setTargetField(e.target.value); setMasterId(""); setSearch(""); }}>
+              <option value="department">Підрозділ</option>
+              <option value="brand">Бренд / НГ</option>
+            </select>
           </div>
-        )}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={btnPri(applying || !masterId)} onClick={handleApply} disabled={applying || !masterId}>
-            {applying ? "Застосування..." : result ? "Застосувати ще раз" : "Застосувати"}
-          </button>
-          <button style={btnSec} onClick={onClose}>Закрити</button>
+
+          <div className="form-field" style={{ marginBottom: 12 }}>
+            <label>Значення з довідника</label>
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder={`Пошук ${targetField === "department" ? "підрозділу" : "бренду"}...`}
+              style={{ marginBottom: 6 }} />
+            <select value={masterId} onChange={e => setMasterId(e.target.value)}
+              size={Math.min(filteredOptions.length + 1, 8)}
+              style={{ minHeight: 80 }}>
+              <option value="">— оберіть —</option>
+              {filteredOptions.map(o =>
+                targetField === "department"
+                  ? <option key={o.department_id} value={o.department_id}>
+                      {[o.holding_name, o.organization_name, o.department_name].filter(Boolean).join(" / ")}
+                    </option>
+                  : <option key={o.id} value={o.id}>
+                      {o.brand_name}{o.brand_uid ? ` [${o.brand_uid}]` : ""}
+                    </option>
+              )}
+            </select>
+          </div>
+
+          {masterId && (
+            <div className="success-message" style={{ marginBottom: 12 }}>
+              Буде застосовано: <strong>{selectedLabel()}</strong> до{" "}
+              <strong>{affectedCount}</strong> рядків
+            </div>
+          )}
+          {err  && <div className="error-message" style={{ marginBottom: 12 }}>{err}</div>}
+          {result && (
+            <div className="success-message" style={{ marginBottom: 12 }}>
+              <strong>Готово!</strong> Оновлено {result.rows_updated} рядків.
+              Валідних: <strong>{result.staging?.valid ?? "—"}</strong>,
+              помилок: <strong>{result.staging?.invalid ?? "—"}</strong>.
+            </div>
+          )}
+          <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+            <button className="btn btn-primary" onClick={handleApply} disabled={applying || !masterId}>
+              {applying ? "Застосування..." : result ? "Застосувати ще раз" : "Застосувати"}
+            </button>
+            <button className="btn btn-secondary" onClick={onClose}>Закрити</button>
+          </div>
         </div>
       </div>
     </div>
@@ -417,39 +393,30 @@ function RawPreviewPanel({ data }) {
   const { columns = [], preview_rows = [], total_rows = 0 } = data;
 
   return (
-    <div style={{ marginTop: 10, border: "1px solid #e5e7eb", borderRadius: 6, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 12px", background: "#f0fdf4", cursor: "pointer",
-                    borderBottom: expanded ? "1px solid #e5e7eb" : "none" }}
+    <div className="import-section-card" style={{ marginTop: 10 }}>
+      <div className="import-section-header" style={{ cursor: "pointer" }}
            onClick={() => setExpanded(v => !v)}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "#065f46" }}>
+        <h3>
           Дані OLAP — {columns.length} колонок, {total_rows} рядків
-          <span style={{ marginLeft: 8, fontWeight: 400, color: "#6b7280", fontSize: 11 }}>
+          <span style={{ marginLeft: 8, fontWeight: 400, color: "var(--text-muted)", fontSize: 12 }}>
             (перші {preview_rows.length})
           </span>
-        </div>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>{expanded ? "▲ Сховати" : "▼ Показати"}</span>
+        </h3>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{expanded ? "▲ Сховати" : "▼ Показати"}</span>
       </div>
       {expanded && (
-        <div style={{ overflowX: "auto", maxHeight: 280, overflowY: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "monospace" }}>
+        <div className="table-wrap-sticky" style={{ maxHeight: 280, borderRadius: 0, border: "none" }}>
+          <table className="data-table compact" style={{ fontFamily: "var(--font-mono)" }}>
             <thead>
-              <tr>
-                {columns.map(c => (
-                  <th key={c} style={{ ...thS, fontSize: 10, maxWidth: 180 }} title={c}>{c}</th>
-                ))}
-              </tr>
+              <tr>{columns.map(c => <th key={c} style={{ maxWidth: 180 }} title={c}>{c}</th>)}</tr>
             </thead>
             <tbody>
               {preview_rows.map((row, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#f9fafb",
-                                     borderBottom: "1px solid #f3f4f6" }}>
+                <tr key={i}>
                   {columns.map(c => (
-                    <td key={c} style={{ ...tdS, maxWidth: 180, overflow: "hidden",
-                                         textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={String(row[c] ?? "")}>
+                    <td key={c} style={{ maxWidth: 180 }} title={String(row[c] ?? "")}>
                       {row[c] === null || row[c] === undefined
-                        ? <span style={{ color: "#d1d5db" }}>NULL</span>
+                        ? <span style={{ color: "var(--text-muted)" }}>NULL</span>
                         : String(row[c])}
                     </td>
                   ))}
@@ -528,60 +495,56 @@ function MappingEditorWithSamples({ sourceId, previewData, onSaved, importType }
   };
 
   return (
-    <div style={{ marginTop: 10, border: "1px solid #e5e7eb", borderRadius: 6, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 12px", background: "#eff6ff", cursor: "pointer",
-                    borderBottom: open ? "1px solid #e5e7eb" : "none" }}
+    <div className="import-section-card" style={{ marginTop: 10 }}>
+      <div className="import-section-header" style={{ cursor: "pointer", background: "var(--info-bg)" }}
            onClick={() => setOpen(v => !v)}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#1e40af" }}>
-          Маппінг полів ({mapping.length} рядків)
-        </span>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>{open ? "▲" : "▼"}</span>
+        <h3 style={{ color: "var(--info)" }}>Маппінг полів ({mapping.length} рядків)</h3>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{open ? "▲" : "▼"}</span>
       </div>
       {open && (
-        <div style={{ padding: 10 }}>
+        <div className="import-section-body">
           {msg && (
-            <div style={{ padding: "5px 10px", borderRadius: 4, fontSize: 12, marginBottom: 8,
-                          background: msg.ok ? "#d1fae5" : "#fee2e2",
-                          color: msg.ok ? "#065f46" : "#991b1b" }}>
+            <div className={msg.ok ? "success-message" : "error-message"} style={{ marginBottom: 8 }}>
               {msg.text}
             </div>
           )}
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table className="data-table compact" style={{ fontSize: 12 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thS, minWidth: 180 }}>Поле джерела (OLAP)</th>
-                  <th style={{ ...thS, minWidth: 150 }}>Приклади значень</th>
-                  <th style={{ ...thS, minWidth: 150 }}>Поле системи</th>
-                  <th style={{ ...thS, width: 70, textAlign: "center" }}>Обов'язк.</th>
-                  <th style={{ ...thS, width: 32 }}></th>
+                  <th style={{ minWidth: 180 }}>Поле джерела (OLAP)</th>
+                  <th style={{ minWidth: 150 }}>Приклади значень</th>
+                  <th style={{ minWidth: 150 }}>Поле системи</th>
+                  <th style={{ width: 70, textAlign: "center" }}>Обов'язк.</th>
+                  <th style={{ width: 32 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {mapping.map((row, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                  <tr key={i}>
                     <td style={{ padding: "3px 6px" }}>
                       {columns.length > 0 ? (
                         <select value={row.source_field}
                                 onChange={e => updateRow(i, "source_field", e.target.value)}
-                                style={inS}>
+                                style={{ width: "100%", padding: "4px 7px", border: "1px solid var(--border)",
+                                         borderRadius: "var(--radius-sm)", fontSize: 12 }}>
                           <option value="">— оберіть —</option>
                           {columns.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       ) : (
                         <input value={row.source_field}
                                onChange={e => updateRow(i, "source_field", e.target.value)}
-                               style={inS} />
+                               style={{ width: "100%", padding: "4px 7px", border: "1px solid var(--border)",
+                                        borderRadius: "var(--radius-sm)", fontSize: 12 }} />
                       )}
                     </td>
                     <td style={{ padding: "3px 6px" }}>
-                      <span style={{ fontSize: 10, color: "#6b7280", fontFamily: "monospace",
-                                     background: "#f9fafb", padding: "2px 5px", borderRadius: 3,
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)",
+                                     background: "var(--gray-50)", padding: "2px 5px", borderRadius: 3,
                                      display: "block", overflow: "hidden", textOverflow: "ellipsis",
                                      whiteSpace: "nowrap", maxWidth: 180 }}
                             title={sampleValues[row.source_field] || ""}>
-                        {sampleValues[row.source_field] || <span style={{ color: "#d1d5db" }}>—</span>}
+                        {sampleValues[row.source_field] || <span style={{ color: "var(--border)" }}>—</span>}
                       </span>
                     </td>
                     <td style={{ padding: "3px 6px" }}>
@@ -594,8 +557,10 @@ function MappingEditorWithSamples({ sourceId, previewData, onSaved, importType }
                             <input value={row.target_field}
                               onChange={e => updateRow(i, "target_field", e.target.value)}
                               list={listId}
-                              style={{ ...inS, borderColor: isExtra ? "#f59e0b" : undefined,
-                                              background:  isExtra ? "#fffbeb" : undefined }}
+                              style={{ width: "100%", padding: "4px 7px", fontSize: 12,
+                                       border: `1px solid ${isExtra ? "var(--warning)" : "var(--border)"}`,
+                                       background: isExtra ? "var(--warning-bg)" : undefined,
+                                       borderRadius: "var(--radius-sm)" }}
                               placeholder="Назва поля системи..." />
                             {canonicalList.length > 0 && (
                               <datalist id={listId}>
@@ -603,7 +568,7 @@ function MappingEditorWithSamples({ sourceId, previewData, onSaved, importType }
                               </datalist>
                             )}
                             {isExtra && (
-                              <div style={{ fontSize: 10, color: "#92400e", marginTop: 2 }}>
+                              <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>
                                 extra_fields (не canonical)
                               </div>
                             )}
@@ -618,22 +583,23 @@ function MappingEditorWithSamples({ sourceId, previewData, onSaved, importType }
                     <td style={{ padding: "3px 5px", textAlign: "center" }}>
                       <button onClick={() => removeRow(i)}
                               style={{ background: "none", border: "none", cursor: "pointer",
-                                       color: "#ef4444", fontSize: 14, lineHeight: 1 }}>✕</button>
+                                       color: "var(--danger)", fontSize: 14, lineHeight: 1 }}>✕</button>
                     </td>
                   </tr>
                 ))}
                 {mapping.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 12, textAlign: "center", color: "#9ca3af", fontSize: 11 }}>
-                    Маппінг порожній. Натисніть "+ Рядок".
-                  </td></tr>
+                  <tr>
+                    <td colSpan={5} style={{ padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
+                      Маппінг порожній. Натисніть "+ Рядок".
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button style={{ ...btnGhost, fontSize: 11 }} onClick={addRow}>+ Рядок</button>
-            <button style={{ ...btnPri(saving), fontSize: 11, padding: "4px 12px" }}
-                    onClick={handleSave} disabled={saving}>
+            <button className="btn btn-secondary btn-sm" onClick={addRow}>+ Рядок</button>
+            <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
               {saving ? "..." : "Зберегти маппінг"}
             </button>
           </div>
@@ -643,51 +609,167 @@ function MappingEditorWithSamples({ sourceId, previewData, onSaved, importType }
   );
 }
 
+// ── Staging KPI strip ─────────────────────────────────────────────────────────
+
+function StagingKpiStrip({ staging, activeFilter, onFilter }) {
+  if (!staging) return null;
+  const chips = [
+    { key: null,      cls: "chip-total",  label: "Всього",   value: staging.total },
+    { key: "valid",   cls: "chip-valid",  label: "Валідних", value: staging.valid },
+    { key: "invalid", cls: "chip-error",  label: "Помилок",  value: staging.invalid },
+    { key: "_saved",  cls: "chip-saved",  label: "Збережено",value: staging.saved, noClick: true },
+  ];
+  if (staging.period_from || staging.period_to) {
+    chips.push({
+      key: "_period", cls: "chip-period", noClick: true,
+      label: "Період",
+      value: `${staging.period_from?.slice(0, 7) || "—"} — ${staging.period_to?.slice(0, 7) || "—"}`,
+      small: true,
+    });
+  }
+  return (
+    <div className="staging-kpi-strip">
+      {chips.map(c => (
+        <button
+          key={String(c.key)}
+          className={`staging-kpi-chip ${c.cls}${activeFilter === c.key && !c.noClick ? " active" : ""}${c.noClick ? " chip-period" : ""}`}
+          onClick={() => !c.noClick && onFilter(activeFilter === c.key ? null : c.key)}
+          style={{ cursor: c.noClick ? "default" : "pointer" }}
+          type="button"
+        >
+          <span className="chip-value" style={c.small ? { fontSize: 14 } : {}}>{c.value}</span>
+          <span className="chip-label">{c.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Staging filter bar ────────────────────────────────────────────────────────
+
+const INIT_FILTERS = {
+  status: null,
+  search: "",
+  department_search: "",
+  product_group_search: "",
+  period_month: "",
+};
+
+function StagingFilterBar({ importType, filterDraft, onChange, onReset, density, onDensity, stagingFilters, filterLoading }) {
+  const isSales = importType === "sales_fact";
+  return (
+    <div className="filter-bar">
+      <div className="filter-group">
+        <label>Статус</label>
+        <select value={filterDraft.status || ""}
+          onChange={e => onChange("status", e.target.value || null)}>
+          <option value="">Всі</option>
+          <option value="valid">Валідні</option>
+          <option value="invalid">Помилки</option>
+        </select>
+      </div>
+      {isSales && (
+        <>
+          <div className="filter-group">
+            <label>Підрозділ</label>
+            <input type="text" value={filterDraft.department_search}
+              onChange={e => onChange("department_search", e.target.value)}
+              placeholder="UID або назва..." />
+          </div>
+          <div className="filter-group">
+            <label>Товарна група</label>
+            <input type="text" value={filterDraft.product_group_search}
+              onChange={e => onChange("product_group_search", e.target.value)}
+              placeholder="UID, ID або назва..." />
+          </div>
+          <div className="filter-group">
+            <label>Місяць</label>
+            <input type="text" value={filterDraft.period_month}
+              onChange={e => onChange("period_month", e.target.value)}
+              placeholder="YYYY-MM-DD" style={{ width: 120 }} />
+          </div>
+        </>
+      )}
+      <div className="filter-group search-group">
+        <label>Пошук (усі поля)</label>
+        <input type="text" value={filterDraft.search}
+          onChange={e => onChange("search", e.target.value)}
+          placeholder={
+            importType === "departments" ? "Підрозділ, організація, регіон..." :
+            importType === "brands"      ? "Бренд, UID, група..." :
+            importType === "articles"    ? "Стаття, UID, PnL-код..." :
+                                           "UID, підрозділ, НГ..."
+          } />
+      </div>
+      <div className="filter-actions">
+        <div className="density-switch">
+          <button className={`density-btn${density === "compact" ? " active" : ""}`}
+            onClick={() => onDensity("compact")} type="button">≡ Compact</button>
+          <button className={`density-btn${density === "comfortable" ? " active" : ""}`}
+            onClick={() => onDensity("comfortable")} type="button">☰ Comfort</button>
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={onReset} type="button">
+          ✕ Скинути
+        </button>
+        {filterLoading && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>…</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── Type-specific staging tables ──────────────────────────────────────────────
 
-function SalesStagingTable({ rows, onRowClick }) {
+function SalesStagingTable({ rows, onRowClick, density }) {
+  const tableClass = `data-table ${density} staging`;
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+    <table className={tableClass}>
       <thead>
         <tr>
-          {["Статус","Маппінг","Період","Підрозділ (джерело)","Master підрозділ",
-            "Бренд / НГ (джерело)","Master бренд","з ПДВ","Роздріб","Дал","Помилка"].map(h => (
-            <th key={h} style={thS}>{h}</th>
-          ))}
+          {[
+            "Статус","Маппінг","Період",
+            "Dept UID","Підрозділ","Master підрозділ",
+            "PG ID","PG UID","НГ (назва)","Master НГ",
+            "з ПДВ","Роздріб","Акциз","Дал","Кг","Помилка",
+          ].map(h => <th key={h}>{h}</th>)}
         </tr>
       </thead>
       <tbody>
         {rows.map(r => (
-          <tr key={r.id} onClick={() => onRowClick && onRowClick(r)}
-              style={{ borderBottom: "1px solid #f3f4f6", cursor: "pointer" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "#fafafa"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = ""; }}>
-            <td style={tdS}><span style={V_BADGE[r.validation_status] || V_BADGE.pending}>{r.validation_status}</span></td>
-            <td style={tdS}><MappingBadge status={r.mapping_status} /></td>
-            <td style={tdS}>{r.period_month}</td>
-            <td style={{ ...tdS, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                title={`${r.department_uid || "—"} | ${r.department_name}`}>
-              {r.department_name || <span style={{ color: "#d1d5db" }}>—</span>}
+          <tr key={r.id}
+              className={r.validation_status === "invalid" ? "row-invalid" : ""}
+              onClick={() => onRowClick && onRowClick(r)}
+              style={{ cursor: "pointer" }}>
+            <td><ValidationBadge status={r.validation_status} /></td>
+            <td><MappingBadge status={r.mapping_status} /></td>
+            <td style={{ whiteSpace: "nowrap" }}>{r.period_month?.slice(0, 7) || "—"}</td>
+            <td><UIDCell value={r.department_uid} maxWidth={130} /></td>
+            <td style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={r.department_name}>
+              {r.department_name || <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
-            <td style={{ ...tdS, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {r.master_department_name
-                ? <span style={{ color: "#1e40af", fontWeight: 500 }}>{r.master_department_name}</span>
-                : <span style={{ color: "#d1d5db" }}>—</span>}
+                ? <span style={{ color: "var(--info)", fontWeight: 500 }}>{r.master_department_name}</span>
+                : <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
-            <td style={{ ...tdS, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                title={`${r.product_group_uid || "—"} | ${r.product_group_name}`}>
-              {r.product_group_name || <span style={{ color: "#d1d5db" }}>—</span>}
+            <td><UIDCell value={r.product_group_id} maxWidth={100} /></td>
+            <td><UIDCell value={r.product_group_uid} maxWidth={130} /></td>
+            <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={r.product_group_name}>
+              {r.product_group_name || <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
-            <td style={{ ...tdS, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {r.master_brand_name
-                ? <span style={{ color: "#1e40af", fontWeight: 500 }}>{r.master_brand_name}</span>
-                : <span style={{ color: "#d1d5db" }}>—</span>}
+                ? <span style={{ color: "var(--info)", fontWeight: 500 }}>{r.master_brand_name}</span>
+                : <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
-            <td style={{ ...tdS, textAlign: "right", fontFamily: "monospace" }}>{fmtNum(r.sales_vat)}</td>
-            <td style={{ ...tdS, textAlign: "right", fontFamily: "monospace" }}>{fmtNum(r.sales_retail)}</td>
-            <td style={{ ...tdS, textAlign: "right", fontFamily: "monospace" }}>{fmtNum(r.sales_dal, 3)}</td>
-            <td style={{ ...tdS, color: "#991b1b", maxWidth: 120, overflow: "hidden",
-                         textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            <td className="amount-cell">{fmtNum(r.sales_vat)}</td>
+            <td className="amount-cell">{fmtNum(r.sales_retail)}</td>
+            <td className="amount-cell">{fmtNum(r.excise)}</td>
+            <td className="amount-cell">{fmtNum(r.sales_dal, 3)}</td>
+            <td className="amount-cell">{fmtNum(r.sales_kg, 3)}</td>
+            <td style={{ color: "var(--danger)", maxWidth: 120, overflow: "hidden",
+                         textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}
                 title={r.validation_error || ""}>{r.validation_error || ""}</td>
           </tr>
         ))}
@@ -696,43 +778,39 @@ function SalesStagingTable({ rows, onRowClick }) {
   );
 }
 
-function DepartmentsStagingTable({ rows }) {
+function DepartmentsStagingTable({ rows, density }) {
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+    <table className={`data-table ${density} staging`}>
       <thead>
         <tr>
-          {[
-            "Статус", "UID", "Підрозділ",
-            "Parent UID", "Parent підрозділ",
-            "Sep. UID", "Separated назва",
-            "Організація", "Філія", "Регіон", "Помилка",
-          ].map(h => <th key={h} style={thS}>{h}</th>)}
+          {["Статус","UID","Підрозділ","Parent UID","Parent підрозділ",
+            "Sep. UID","Separated назва","Організація","Філія","Регіон","Помилка"].map(h => (
+            <th key={h}>{h}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
         {rows.map(r => (
-          <tr key={r.id} style={{ borderBottom: "1px solid #f3f4f6",
-                                   background: r.validation_status === "invalid" ? "#fff5f5" : "#fff" }}>
-            <td style={tdS}><span style={V_BADGE[r.validation_status] || V_BADGE.pending}>{r.validation_status}</span></td>
-            <td style={tdS}><code style={{ fontSize: 10 }}>{r.department_uid || "—"}</code></td>
-            <td style={tdS}>{r.department_name || "—"}</td>
-            <td style={tdS}><code style={{ fontSize: 10 }}>{r.parent_department_uid || "—"}</code></td>
-            <td style={tdS}>{r.parent_department_name || <span style={{ color: "#d1d5db" }}>—</span>}</td>
-            <td style={tdS}>
+          <tr key={r.id} className={r.validation_status === "invalid" ? "row-invalid" : ""}>
+            <td><ValidationBadge status={r.validation_status} /></td>
+            <td><UIDCell value={r.department_uid} /></td>
+            <td>{r.department_name || "—"}</td>
+            <td><UIDCell value={r.parent_department_uid} /></td>
+            <td>{r.parent_department_name || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+            <td>
               {r.separated_department_uid
-                ? <code style={{ fontSize: 10, color: "#0369a1", background: "#e0f2fe",
-                                  padding: "1px 4px", borderRadius: 3 }}>
-                    {r.separated_department_uid}
-                  </code>
-                : <span style={{ color: "#d1d5db" }}>—</span>}
+                ? <UIDCell value={r.separated_department_uid} />
+                : <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
-            <td style={{ ...tdS, color: "#0369a1" }}>
-              {r.separated_department_name || <span style={{ color: "#d1d5db" }}>—</span>}
+            <td style={{ color: "var(--info)" }}>
+              {r.separated_department_name || <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
-            <td style={tdS}>{r.organization_name || "—"}</td>
-            <td style={tdS}>{r.branch_name || <span style={{ color: "#d1d5db" }}>—</span>}</td>
-            <td style={tdS}>{r.region_name || <span style={{ color: "#d1d5db" }}>—</span>}</td>
-            <td style={{ ...tdS, color: "#991b1b", maxWidth: 200, whiteSpace: "pre-wrap" }}>{r.validation_error || ""}</td>
+            <td>{r.organization_name || "—"}</td>
+            <td>{r.branch_name || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+            <td>{r.region_name  || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+            <td style={{ color: "var(--danger)", maxWidth: 200, whiteSpace: "pre-wrap", fontSize: 11 }}>
+              {r.validation_error || ""}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -740,208 +818,64 @@ function DepartmentsStagingTable({ rows }) {
   );
 }
 
-function BrandsStagingTable({ rows }) {
-  const [fStatus,  setFStatus]  = useState("");
-  const [fSearch,  setFSearch]  = useState("");
-  const [fGroup,   setFGroup]   = useState("");
-  const [fLevel,   setFLevel]   = useState("");
-  const [fCompany, setFCompany] = useState("");
-  const [fActive,  setFActive]  = useState("");
-  const [fParent,  setFParent]  = useState(""); // "" | "__none__" | actual parent name
-  const [fError,   setFError]   = useState(""); // "" | "yes" | "no"
-
-  const uniq = (field) =>
-    [...new Set((rows || []).map(r => r[field]).filter(v => v != null && v !== ""))].sort();
-
-  const groups    = uniq("brand_group");
-  const levels    = uniq("source_level");
-  const companies = uniq("source_company_name");
-  const actives   = uniq("source_is_active");
-  const parents   = uniq("parent_brand_name");
-
-  const filtered = (rows || []).filter(r => {
-    if (fStatus && r.validation_status !== fStatus) return false;
-    if (fSearch) {
-      const q = fSearch.toLowerCase();
-      if (!(r.brand_uid || "").toLowerCase().includes(q) &&
-          !(r.brand_name || "").toLowerCase().includes(q)) return false;
-    }
-    if (fGroup   && r.brand_group  !== fGroup)   return false;
-    if (fLevel   && r.source_level !== fLevel)   return false;
-    if (fCompany && r.source_company_name !== fCompany) return false;
-    if (fActive  && r.source_is_active    !== fActive)  return false;
-    if      (fParent === "__none__")              { if (r.parent_brand_name)            return false; }
-    else if (fParent)                             { if (r.parent_brand_name !== fParent) return false; }
-    if (fError === "yes" && !r.validation_error) return false;
-    if (fError === "no"  &&  r.validation_error) return false;
-    return true;
-  });
-
-  const clearAll = () => {
-    setFStatus(""); setFSearch(""); setFGroup(""); setFLevel("");
-    setFCompany(""); setFActive(""); setFParent(""); setFError("");
-  };
-  const hasAnyFilter = !!(fStatus || fSearch || fGroup || fLevel || fCompany || fActive || fParent || fError);
-  const total = (rows || []).length;
-
-  // Filter cell styles
-  const fcS = { padding: "2px 3px", background: "#f3f4f6", borderBottom: "1px solid #d1d5db" };
-  const selS = { width: "100%", padding: "2px 4px", border: "1px solid #d1d5db",
-                 borderRadius: 3, fontSize: 10, background: "#fff" };
-  const inpS = { width: "100%", padding: "2px 4px", border: "1px solid #d1d5db",
-                 borderRadius: 3, fontSize: 10, boxSizing: "border-box" };
-  const xS   = { cursor: "pointer", color: "#9ca3af", fontSize: 14, background: "none",
-                 border: "none", padding: "0 1px", lineHeight: 1, flexShrink: 0 };
-
-  // Helper: filter cell with optional clear button
-  const FC = ({ val, clr, span, children }) => (
-    <th style={fcS} colSpan={span}>
-      <div style={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
-        {val && <button onClick={clr} style={xS} title="Скинути">×</button>}
-      </div>
-    </th>
-  );
-
+function BrandsStagingTable({ rows, density }) {
+  // Server-side pagination and search handled by parent — display only
   return (
-    <div>
-      {/* Count + global reset */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "3px 0 5px" }}>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>
-          <strong style={{ color: "#111827" }}>{filtered.length}</strong>
-          <span style={{ color: "#d1d5db", margin: "0 3px" }}>/</span>
-          {total}
-        </span>
-        {hasAnyFilter && (
-          <button onClick={clearAll}
-            style={{ padding: "2px 10px", fontSize: 11, background: "#fee2e2",
-                     border: "1px solid #fca5a5", borderRadius: 4, cursor: "pointer", color: "#991b1b" }}>
-            ✕ Скинути всі
-          </button>
-        )}
-      </div>
-
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-        <thead>
-          {/* Column headers */}
-          <tr>
-            {["Статус","UID","Назва","Група","Рівень","Компанія","Активний","Ref ID","Parent","Помилка"].map(h => (
-              <th key={h} style={thS}>{h}</th>
-            ))}
-          </tr>
-          {/* Filter row — aligned per column */}
-          <tr>
-            {/* 1 — Status */}
-            <FC val={fStatus} clr={() => setFStatus("")}>
-              <select value={fStatus} onChange={e => setFStatus(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                <option value="valid">valid</option>
-                <option value="invalid">invalid</option>
-              </select>
-            </FC>
-            {/* 2+3 — UID / Name (single search, spans 2 cols) */}
-            <FC val={fSearch} clr={() => setFSearch("")} span={2}>
-              <input value={fSearch} onChange={e => setFSearch(e.target.value)}
-                     placeholder="UID або назва..." style={inpS} />
-            </FC>
-            {/* 4 — Group */}
-            <FC val={fGroup} clr={() => setFGroup("")}>
-              <select value={fGroup} onChange={e => setFGroup(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                {groups.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </FC>
-            {/* 5 — Level */}
-            <FC val={fLevel} clr={() => setFLevel("")}>
-              <select value={fLevel} onChange={e => setFLevel(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                {levels.map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-            </FC>
-            {/* 6 — Company */}
-            <FC val={fCompany} clr={() => setFCompany("")}>
-              <select value={fCompany} onChange={e => setFCompany(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                {companies.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </FC>
-            {/* 7 — Active */}
-            <FC val={fActive} clr={() => setFActive("")}>
-              <select value={fActive} onChange={e => setFActive(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                {actives.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </FC>
-            {/* 8 — Ref ID: no filter */}
-            <th style={{ ...fcS, background: "#f9fafb" }} />
-            {/* 9 — Parent: DISTINCT values + "Без parent" */}
-            <FC val={fParent} clr={() => setFParent("")}>
-              <select value={fParent} onChange={e => setFParent(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                <option value="__none__">Без parent</option>
-                {parents.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </FC>
-            {/* 10 — Error */}
-            <FC val={fError} clr={() => setFError("")}>
-              <select value={fError} onChange={e => setFError(e.target.value)} style={selS}>
-                <option value="">Всі</option>
-                <option value="yes">Є помилка</option>
-                <option value="no">Без помилки</option>
-              </select>
-            </FC>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.length === 0 ? (
-            <tr>
-              <td colSpan={10} style={{ padding: 12, textAlign: "center", color: "#9ca3af" }}>
-                {hasAnyFilter ? "Рядків не знайдено за фільтром" : "Немає даних"}
-              </td>
-            </tr>
-          ) : filtered.map(r => (
-            <tr key={r.id} style={{ borderBottom: "1px solid #f3f4f6",
-                                     background: r.validation_status === "invalid" ? "#fff5f5" : "#fff" }}>
-              <td style={tdS}><span style={V_BADGE[r.validation_status] || V_BADGE.pending}>{r.validation_status}</span></td>
-              <td style={tdS}><code style={{ fontSize: 10 }}>{r.brand_uid || "—"}</code></td>
-              <td style={tdS}>{r.brand_name || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}>{r.brand_group || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}>{r.source_level || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}>{r.source_company_name || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}>{r.source_is_active || "—"}</td>
-              <td style={{ ...tdS, color: "#6b7280" }}><code style={{ fontSize: 9 }}>{r.source_brand_ref_id || "—"}</code></td>
-              <td style={tdS}>{r.parent_brand_name || "—"}</td>
-              <td style={{ ...tdS, color: "#991b1b", fontSize: 10 }}>{r.validation_error || ""}</td>
-            </tr>
+    <table className={`data-table ${density} staging`}>
+      <thead>
+        <tr>
+          {["Статус","UID","Назва","Група","Рівень","Компанія","Активний","Ref ID","Parent","Помилка"].map(h => (
+            <th key={h}>{h}</th>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </tr>
+      </thead>
+      <tbody>
+        {(rows || []).length === 0 ? (
+          <tr>
+            <td colSpan={10} className="empty-row">Немає даних</td>
+          </tr>
+        ) : (rows || []).map(r => (
+          <tr key={r.id} className={r.validation_status === "invalid" ? "row-invalid" : ""}>
+            <td><ValidationBadge status={r.validation_status} /></td>
+            <td><UIDCell value={r.brand_uid} /></td>
+            <td>{r.brand_name || "—"}</td>
+            <td style={{ color: "var(--text-muted)" }}>{r.brand_group || "—"}</td>
+            <td style={{ color: "var(--text-muted)" }}>{r.source_level || "—"}</td>
+            <td style={{ color: "var(--text-muted)" }}>{r.source_company_name || "—"}</td>
+            <td style={{ color: "var(--text-muted)" }}>{r.source_is_active || "—"}</td>
+            <td style={{ color: "var(--text-muted)" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>{r.source_brand_ref_id || "—"}</span>
+            </td>
+            <td>{r.parent_brand_name || "—"}</td>
+            <td style={{ color: "var(--danger)", fontSize: 10 }}>{r.validation_error || ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
-function ArticlesStagingTable({ rows }) {
+function ArticlesStagingTable({ rows, density }) {
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+    <table className={`data-table ${density} staging`}>
       <thead>
         <tr>
           {["Статус","UID","Назва статті","Тип","Level1","Level2","PnL код","Помилка"].map(h => (
-            <th key={h} style={thS}>{h}</th>
+            <th key={h}>{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {rows.map(r => (
-          <tr key={r.id} style={{ borderBottom: "1px solid #f3f4f6",
-                                   background: r.validation_status === "invalid" ? "#fff5f5" : "#fff" }}>
-            <td style={tdS}><span style={V_BADGE[r.validation_status] || V_BADGE.pending}>{r.validation_status}</span></td>
-            <td style={tdS}><code style={{ fontSize: 10 }}>{r.article_uid || "—"}</code></td>
-            <td style={tdS}>{r.article_name || "—"}</td>
-            <td style={tdS}>{r.article_type || "—"}</td>
-            <td style={tdS}>{r.level1 || "—"}</td>
-            <td style={tdS}>{r.level2 || "—"}</td>
-            <td style={tdS}>{r.pnl_code || "—"}</td>
-            <td style={{ ...tdS, color: "#991b1b" }}>{r.validation_error || ""}</td>
+          <tr key={r.id} className={r.validation_status === "invalid" ? "row-invalid" : ""}>
+            <td><ValidationBadge status={r.validation_status} /></td>
+            <td><UIDCell value={r.article_uid} /></td>
+            <td>{r.article_name || "—"}</td>
+            <td>{r.article_type || "—"}</td>
+            <td>{r.level1 || "—"}</td>
+            <td>{r.level2 || "—"}</td>
+            <td>{r.pnl_code || "—"}</td>
+            <td style={{ color: "var(--danger)", fontSize: 11 }}>{r.validation_error || ""}</td>
           </tr>
         ))}
       </tbody>
@@ -949,25 +883,46 @@ function ArticlesStagingTable({ rows }) {
   );
 }
 
-function StagingRows({ importType, rows, onRowClick }) {
+function StagingRows({ importType, rows, onRowClick, density }) {
   if (!rows || rows.length === 0)
-    return <div style={{ padding: 16, textAlign: "center", color: "#9ca3af", fontSize: 12 }}>Рядків не знайдено</div>;
-  if (importType === "departments") return <DepartmentsStagingTable rows={rows} />;
-  if (importType === "brands")     return <BrandsStagingTable rows={rows} />;
-  if (importType === "articles")   return <ArticlesStagingTable rows={rows} />;
-  if (importType === "sales_fact") return <SalesStagingTable rows={rows} onRowClick={onRowClick} />;
+    return (
+      <div className="empty-state">
+        <div className="empty-state-icon">🔍</div>
+        <div className="empty-state-message">Рядків не знайдено</div>
+      </div>
+    );
+  if (importType === "departments") return <DepartmentsStagingTable rows={rows} density={density} />;
+  if (importType === "brands")     return <BrandsStagingTable rows={rows} density={density} />;
+  if (importType === "articles")   return <ArticlesStagingTable rows={rows} density={density} />;
+  if (importType === "sales_fact") return <SalesStagingTable rows={rows} onRowClick={onRowClick} density={density} />;
   return null;
 }
 
-// ── KPI pill ──────────────────────────────────────────────────────────────────
+// ── Pagination ────────────────────────────────────────────────────────────────
 
-function KpiPill({ label, value, color }) {
+function Pagination({ page, totalPages, total, pageRows, onPage }) {
+  if (totalPages <= 1) return null;
+  const pages = [];
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || Math.abs(i - page) <= 2) {
+      pages.push(i);
+    } else if (pages[pages.length - 1] !== "…") {
+      pages.push("…");
+    }
+  }
   return (
-    <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5,
-                   padding: "3px 11px", borderRadius: 20, background: "#f3f4f6", fontSize: 12 }}>
-      <span style={{ fontWeight: 700, fontSize: 15, color: color || "#374151" }}>{value}</span>
-      <span style={{ color: "#6b7280" }}>{label}</span>
-    </span>
+    <div className="pagination">
+      <button className="pg-btn" onClick={() => onPage(page - 1)} disabled={page <= 1}>←</button>
+      {pages.map((p, idx) =>
+        p === "…"
+          ? <span key={`e${idx}`} className="pg-ellipsis">…</span>
+          : <button key={p} className={`pg-btn${page === p ? " pg-active" : ""}`} onClick={() => onPage(p)}>{p}</button>
+      )}
+      <button className="pg-btn" onClick={() => onPage(page + 1)} disabled={page >= totalPages}>→</button>
+      <span className="pg-info">
+        {pageRows} з {total?.toLocaleString("uk-UA") || 0} · Стор. {page}/{totalPages}
+      </span>
+    </div>
   );
 }
 
@@ -986,7 +941,9 @@ function BatchHistoryPanel({ importType, refreshKey, onSelect }) {
   useEffect(() => { load(); }, [load, refreshKey]);
 
   if (batches.length === 0)
-    return <div style={{ fontSize: 12, color: "#9ca3af", padding: "6px 0" }}>Батчів не знайдено</div>;
+    return <div className="empty-state" style={{ padding: "20px 0" }}>
+      <div className="empty-state-message">Батчів не знайдено</div>
+    </div>;
 
   return (
     <>
@@ -1001,64 +958,61 @@ function BatchHistoryPanel({ importType, refreshKey, onSelect }) {
           onViewStaging={(b) => { onSelect && onSelect(b); }}
         />
       )}
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+      <div className="table-wrap">
+        <table className="data-table compact">
           <thead>
             <tr>
               {["#","Джерело","Статус","Тип / Ціль","Період"].map(h =>
-                <th key={h} style={thS}>{h}</th>)}
-              <th style={{ ...thS, textAlign: "right" }}>Всього</th>
-              <th style={{ ...thS, textAlign: "right" }}>Валід.</th>
-              <th style={{ ...thS, textAlign: "right" }}>Помилок</th>
-              <th style={{ ...thS, textAlign: "right" }}>Записано</th>
-              {["Час",""].map(h => <th key={h} style={thS}>{h}</th>)}
+                <th key={h}>{h}</th>)}
+              <th style={{ textAlign: "right" }}>Всього</th>
+              <th style={{ textAlign: "right" }}>Валід.</th>
+              <th style={{ textAlign: "right" }}>Помилок</th>
+              <th style={{ textAlign: "right" }}>Записано</th>
+              <th>Час</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {batches.map(b => (
-              <tr key={b.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ ...tdS, color: "#9ca3af" }}>#{b.id}</td>
-                <td style={{ ...tdS, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              <tr key={b.id}>
+                <td style={{ color: "var(--text-muted)" }}>#{b.id}</td>
+                <td style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                     title={b.source_name}>{b.source_name || b.source_id}</td>
-                <td style={tdS}>
+                <td>
                   <StatusBadge status={b.status} />
                   {b.error_message && (
-                    <div style={{ color: "#991b1b", fontSize: 10, maxWidth: 90, overflow: "hidden",
+                    <div style={{ color: "var(--danger)", fontSize: 10, maxWidth: 90, overflow: "hidden",
                                   textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}
                          title={b.error_message}>{b.error_message}</div>
                   )}
                 </td>
-                <td style={tdS}>
-                  <div style={{ fontSize: 10, color: "#374151" }}>{b.import_type_code || "—"}</div>
-                  <div style={{ fontSize: 10, color: "#9ca3af" }}>→ {b.target_table || "—"}</div>
+                <td>
+                  <div style={{ fontSize: 10, color: "var(--text-primary)" }}>{b.import_type_code || "—"}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)" }}>→ {b.target_table || "—"}</div>
                 </td>
-                <td style={{ ...tdS, fontSize: 10, whiteSpace: "nowrap" }}>
+                <td style={{ fontSize: 10, whiteSpace: "nowrap" }}>
                   {b.period_from && b.period_to
                     ? <>{b.period_from.slice(0, 7)} — {b.period_to.slice(0, 7)}</>
-                    : <span style={{ color: "#d1d5db" }}>—</span>}
+                    : <span style={{ color: "var(--text-muted)" }}>—</span>}
                 </td>
-                <td style={{ ...tdS, textAlign: "right" }}>{b.rows_total ?? "—"}</td>
-                <td style={{ ...tdS, textAlign: "right", color: "#065f46", fontWeight: 600 }}>{b.rows_valid ?? b.rows_loaded ?? "—"}</td>
-                <td style={{ ...tdS, textAlign: "right",
-                             color: (b.rows_invalid ?? 0) > 0 ? "#991b1b" : undefined,
+                <td style={{ textAlign: "right" }}>{b.rows_total ?? "—"}</td>
+                <td style={{ textAlign: "right", color: "var(--success)", fontWeight: 600 }}>{b.rows_valid ?? b.rows_loaded ?? "—"}</td>
+                <td style={{ textAlign: "right",
+                             color: (b.rows_invalid ?? 0) > 0 ? "var(--danger)" : undefined,
                              fontWeight: (b.rows_invalid ?? 0) > 0 ? 600 : undefined }}>
                   {b.rows_invalid ?? 0}
                 </td>
-                <td style={{ ...tdS, textAlign: "right", fontWeight: 600 }}>
+                <td style={{ textAlign: "right", fontWeight: 600 }}>
                   {b.status === "committed" ? (b.rows_loaded_to_target ?? "—") : "—"}
                 </td>
-                <td style={{ ...tdS, fontSize: 10, whiteSpace: "nowrap" }}>
+                <td style={{ fontSize: 10, whiteSpace: "nowrap" }}>
                   {b.started_at ? new Date(b.started_at).toLocaleString("uk-UA") : "—"}
                 </td>
-                <td style={tdS}>
+                <td>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button style={{ fontSize: 11, color: "#7c3aed", background: "none",
-                                     border: "none", cursor: "pointer", padding: 0 }}
-                      onClick={() => setDetailBatch(b)}>Деталі</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setDetailBatch(b)}>Деталі</button>
                     {(b.status === "loaded" || b.status === "committed") && (
-                      <button style={{ fontSize: 11, color: "#6b7280", background: "none",
-                                       border: "none", cursor: "pointer", padding: 0 }}
-                        onClick={() => onSelect && onSelect(b)}>Staging</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => onSelect && onSelect(b)}>Staging</button>
                     )}
                   </div>
                 </td>
@@ -1095,24 +1049,39 @@ export default function ImportDataPage({ setActivePage }) {
   const [loadResult,    setLoadResult]    = useState(null);
   const [batchId,       setBatchId]       = useState(null);
   const [staging,       setStaging]       = useState(null);
-  const [statusFilter,  setStatusFilter]  = useState(null);
   const [filterLoading, setFilterLoading] = useState(false);
+  const [stagingPage,   setStagingPage]   = useState(1);
+  const [density,       setDensity]       = useState("compact");
+  const STAGING_PAGE_SIZE = 100;
+
+  // Filter draft = immediate (typing), stagingFilters = debounced (triggers fetch)
+  const [filterDraft,    setFilterDraft]    = useState(INIT_FILTERS);
+  const [stagingFilters, setStagingFilters] = useState(INIT_FILTERS);
+
+  const debouncedSearch    = useDebounce(filterDraft.search, 400);
+  const debouncedDeptSrch  = useDebounce(filterDraft.department_search, 400);
+  const debouncedPGSrch    = useDebounce(filterDraft.product_group_search, 400);
+  const debouncedPeriodM   = useDebounce(filterDraft.period_month, 400);
+
+  // Sync debounced values into stagingFilters
+  useEffect(() => {
+    setStagingFilters(f => ({
+      ...f,
+      search:               debouncedSearch,
+      department_search:    debouncedDeptSrch,
+      product_group_search: debouncedPGSrch,
+      period_month:         debouncedPeriodM,
+    }));
+    setStagingPage(1);
+  }, [debouncedSearch, debouncedDeptSrch, debouncedPGSrch, debouncedPeriodM]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [committing,    setCommitting]    = useState(false);
   const [commitResult,  setCommitResult]  = useState(null);
-
-  const [deptFilterName,       setDeptFilterName]       = useState("");
-  const [deptFilterParentName, setDeptFilterParentName] = useState("");
-  const [deptFilterOrg,        setDeptFilterOrg]        = useState("");
-  const [deptFilterBranch,     setDeptFilterBranch]     = useState("");
-  const [deptFilterRegion,     setDeptFilterRegion]     = useState("");
-  const [deptFilterSeparated,  setDeptFilterSeparated]  = useState("");
-
-  const [error,          setError]          = useState(null);
-  const [success,        setSuccess]        = useState(null);
-  const [detailRow,      setDetailRow]      = useState(null);
-  const [showBulkUpdate, setShowBulkUpdate] = useState(false);
-  const [historyKey,     setHistoryKey]     = useState(0);
+  const [error,         setError]         = useState(null);
+  const [success,       setSuccess]       = useState(null);
+  const [detailRow,     setDetailRow]     = useState(null);
+  const [showBulkUpdate,setShowBulkUpdate]= useState(false);
+  const [historyKey,    setHistoryKey]    = useState(0);
 
   // ── Load sources when type changes ─────────────────────────────────────────
   useEffect(() => {
@@ -1122,18 +1091,28 @@ export default function ImportDataPage({ setActivePage }) {
       .catch(() => {});
   }, [importType]);
 
+  // ── Refetch staging when filters / page / batchId change ──────────────────
+  useEffect(() => {
+    if (!batchId) return;
+    setFilterLoading(true);
+    getStagingPreview(batchId, {
+      status_filter:        stagingFilters.status   || undefined,
+      page:                 stagingPage,
+      page_size:            STAGING_PAGE_SIZE,
+      search:               stagingFilters.search              || undefined,
+      department_search:    stagingFilters.department_search   || undefined,
+      product_group_search: stagingFilters.product_group_search || undefined,
+      period_month:         stagingFilters.period_month        || undefined,
+    }).then(setStaging).catch(() => {}).finally(() => setFilterLoading(false));
+  }, [batchId, stagingFilters, stagingPage]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const resetDeptFilters = () => {
-    setDeptFilterName(""); setDeptFilterParentName("");
-    setDeptFilterOrg(""); setDeptFilterBranch(""); setDeptFilterRegion("");
-    setDeptFilterSeparated("");
-  };
-
   const resetBatch = () => {
-    setBatchId(null); setStaging(null); setStatusFilter(null);
+    setBatchId(null); setStaging(null);
+    setFilterDraft(INIT_FILTERS); setStagingFilters(INIT_FILTERS);
+    setStagingPage(1);
     setLoadResult(null); setCommitResult(null); setError(null);
-    resetDeptFilters();
   };
 
   const handleTypeSelect = (type) => {
@@ -1177,6 +1156,8 @@ export default function ImportDataPage({ setActivePage }) {
       setBatchId(res.batch_id);
       setStaging(res.staging);
       setLoadResult(res);
+      setStagingPage(1);
+      setFilterDraft(INIT_FILTERS); setStagingFilters(INIT_FILTERS);
       setSuccess(
         `OLAP: ${res.rows_total} рядків. У staging: ${res.rows_loaded}` +
         ` (валідних ${res.rows_valid}, помилок ${res.rows_invalid})`
@@ -1187,20 +1168,41 @@ export default function ImportDataPage({ setActivePage }) {
     } finally { setLoading(false); }
   };
 
-  const handleFilterChange = async (filter) => {
-    if (!batchId) return;
-    setStatusFilter(filter); setFilterLoading(true);
-    const previewLimit = importType === "departments" ? 5000 : 500;
-    try { setStaging(await getStagingPreview(batchId, filter, previewLimit)); } catch {}
-    finally { setFilterLoading(false); }
+  const handleFilterDraftChange = (key, value) => {
+    setFilterDraft(f => ({ ...f, [key]: value }));
+    // status changes are immediate (no debounce)
+    if (key === "status") {
+      setStagingFilters(f => ({ ...f, status: value }));
+      setStagingPage(1);
+    }
   };
 
-  const handleRefreshStaging = async () => {
+  const handleFilterReset = () => {
+    setFilterDraft(INIT_FILTERS);
+    setStagingFilters(INIT_FILTERS);
+    setStagingPage(1);
+  };
+
+  const handleChipFilter = (statusVal) => {
+    setFilterDraft(f => ({ ...f, status: statusVal }));
+    setStagingFilters(f => ({ ...f, status: statusVal }));
+    setStagingPage(1);
+  };
+
+  const handleRefreshStaging = () => {
     if (!batchId) return;
+    // Toggle a refetch by resetting page — the useEffect will fire
+    setStagingPage(p => p); // same value won't trigger; use a timestamp trick
     setFilterLoading(true);
-    const previewLimit = importType === "departments" ? 5000 : 500;
-    try { setStaging(await getStagingPreview(batchId, statusFilter, previewLimit)); } catch {}
-    finally { setFilterLoading(false); }
+    getStagingPreview(batchId, {
+      status_filter:        stagingFilters.status   || undefined,
+      page:                 stagingPage,
+      page_size:            STAGING_PAGE_SIZE,
+      search:               stagingFilters.search              || undefined,
+      department_search:    stagingFilters.department_search   || undefined,
+      product_group_search: stagingFilters.product_group_search || undefined,
+      period_month:         stagingFilters.period_month        || undefined,
+    }).then(setStaging).catch(() => {}).finally(() => setFilterLoading(false));
   };
 
   const handleCommit = async () => {
@@ -1229,39 +1231,18 @@ export default function ImportDataPage({ setActivePage }) {
     } finally { setCommitting(false); }
   };
 
-  const handleViewStaging = async (b) => {
-    setBatchId(b.id); setCommitResult(null); setStatusFilter(null);
-    setImportType(b.import_type_code);
-    try { setStaging(await getStagingPreview(b.id, null, b.import_type_code === "departments" ? 5000 : 500)); } catch {}
+  const handleViewStaging = (b) => {
+    setBatchId(b.id); setCommitResult(null);
+    setFilterDraft(INIT_FILTERS); setStagingFilters(INIT_FILTERS);
+    setImportType(b.import_type_code); setStagingPage(1);
+    // useEffect on batchId / stagingFilters change will fetch
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const meta     = importType ? IMPORT_TYPES[importType] : null;
-  const canLoad  = sourceId && !loading && (!meta?.hasPeriod || (periodFrom && periodTo));
+  const meta      = importType ? IMPORT_TYPES[importType] : null;
+  const canLoad   = sourceId && !loading && (!meta?.hasPeriod || (periodFrom && periodTo));
   const canCommit = staging && staging.valid > 0 && !commitResult;
-
-  const allDeptRows      = staging?.rows || [];
-  const filteredDeptRows = importType === "departments"
-    ? allDeptRows.filter(r => {
-        const txt = (val, f) => !f || (val || "").toLowerCase().includes(f.toLowerCase());
-        const sel = (val, f) => !f || (val || "") === f;
-        return txt(r.department_name,        deptFilterName)
-            && sel(r.parent_department_name,  deptFilterParentName)
-            && sel(r.organization_name,       deptFilterOrg)
-            && sel(r.branch_name,             deptFilterBranch)
-            && sel(r.region_name,             deptFilterRegion)
-            && sel(r.separated_department_name, deptFilterSeparated);
-      })
-    : allDeptRows;
-
-  // Distinct values for dept select filters (from full dataset, not filtered)
-  const deptDistinctOrgs      = [...new Set(allDeptRows.map(r => r.organization_name).filter(Boolean))].sort();
-  const deptDistinctBranches  = [...new Set(allDeptRows.map(r => r.branch_name).filter(Boolean))].sort();
-  const deptDistinctRegions   = [...new Set(allDeptRows.map(r => r.region_name).filter(Boolean))].sort();
-  const deptDistinctParents   = [...new Set(allDeptRows.map(r => r.parent_department_name).filter(Boolean))].sort();
-  const deptDistinctSeparated = [...new Set(allDeptRows.map(r => r.separated_department_name).filter(Boolean))].sort();
-
-  const selS = { padding: "5px 7px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 12 };
+  const stagingRows = staging?.rows || [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -1269,448 +1250,347 @@ export default function ImportDataPage({ setActivePage }) {
       {detailRow && <RawRowModal row={detailRow} onClose={() => setDetailRow(null)} />}
       {showBulkUpdate && batchId && staging && (
         <BulkUpdateModal
-          batchId={batchId} staging={staging} statusFilter={statusFilter}
+          batchId={batchId} staging={staging} statusFilter={stagingFilters.status}
           onClose={() => setShowBulkUpdate(false)}
-          onApplied={(s) => setStaging(s)}
+          onApplied={(s) => setStaging(prev => ({ ...prev, ...s }))}
         />
       )}
 
-      <div style={{ background: "#f9fafb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      {/* ── Page Header ── */}
+      <div className="page-header">
+        <div>
+          <h1>Імпорт даних</h1>
+          <p>Import Center — OLAP / SQL → staging → target table</p>
+        </div>
+        {importType && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="staging-batch-badge" style={{ fontSize: 13, padding: "4px 14px" }}>
+              {meta?.icon} {meta?.label}
+            </span>
+            <button className="btn btn-light" onClick={() => handleTypeSelect(null)}>
+              ← Змінити тип
+            </button>
+          </div>
+        )}
+      </div>
 
-        {/* ── Header ── */}
-        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb",
-                      padding: "10px 20px", display: "flex", alignItems: "center",
-                      justifyContent: "space-between", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>Імпорт даних</div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
-              Import Center — OLAP / SQL → staging → target table
+      {/* ── Alerts ── */}
+      {error && (
+        <div className="error-message" style={{ margin: "12px 0 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <span>{typeof error === "string" ? error : JSON.stringify(error)}</span>
+            <button onClick={() => setError(null)}
+              style={{ background: "none", border: "none", cursor: "pointer",
+                       color: "var(--danger)", fontSize: 16, lineHeight: 1, flexShrink: 0, marginLeft: 8 }}>✕</button>
+          </div>
+        </div>
+      )}
+      {success && (
+        <div className="success-message" style={{ margin: "12px 0 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <span>{success}</span>
+            <button onClick={() => setSuccess(null)}
+              style={{ background: "none", border: "none", cursor: "pointer",
+                       color: "var(--success)", fontSize: 16, lineHeight: 1, flexShrink: 0, marginLeft: 8 }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 1: Type selector ── */}
+      {!importType && (
+        <div className="content-card">
+          <div className="card-top">
+            <div className="card-title-block">
+              <h2>Що імпортуємо?</h2>
+              <p>Оберіть тип даних для імпорту з OLAP/SQL джерела</p>
             </div>
           </div>
-          {importType && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6,
-                             padding: "4px 12px", borderRadius: 20,
-                             background: "#f3e8ff", fontSize: 12, fontWeight: 600, color: "#7c3aed" }}>
-                {meta?.icon} {meta?.label}
-              </span>
-              <button onClick={() => handleTypeSelect(null)} style={btnSec}>
-                ← Змінити
+          <div className="import-type-grid">
+            {Object.entries(IMPORT_TYPES).map(([code, m]) => (
+              <button key={code} className="import-type-card" onClick={() => handleTypeSelect(code)}>
+                <span className="import-type-card-icon">{m.icon}</span>
+                <span className="import-type-card-label">{m.label}</span>
+                <span className="import-type-card-desc">{m.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {importType && (
+        <>
+          {/* ── Step 2: Source ── */}
+          <div className="import-section-card">
+            <div className="import-section-header">
+              <h3>Джерело даних</h3>
+            </div>
+            <div className="import-section-body">
+              {sources.length === 0 && (
+                <div className="hint-warning" style={{ marginBottom: 10 }}>
+                  Немає джерел з типом "{meta?.label}". Налаштуйте джерело у «Відповідність».
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div className="filter-group" style={{ minWidth: 280 }}>
+                  <label>Джерело ({meta?.label})</label>
+                  <select value={sourceId} onChange={e => handleSourceChange(e.target.value)}>
+                    <option value="">— оберіть —</option>
+                    {sources.map(s => (
+                      <option key={s.id} value={s.id}>{s.source_name} ({s.source_type})</option>
+                    ))}
+                  </select>
+                </div>
+                {sourceId && (
+                  <button className="btn btn-secondary" onClick={handlePreview} disabled={previewing}>
+                    {previewing ? "Отримання..." : "Отримати дані OLAP"}
+                  </button>
+                )}
+              </div>
+
+              <RawPreviewPanel data={previewData} />
+              {sourceId && (
+                <MappingEditorWithSamples
+                  sourceId={Number(sourceId)}
+                  previewData={previewData}
+                  importType={importType}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* ── Step 3: Period (sales_fact only) ── */}
+          {sourceId && meta?.hasPeriod && (
+            <div className="import-section-card">
+              <div className="import-section-header">
+                <h3>Параметри імпорту</h3>
+              </div>
+              <div className="import-section-body">
+                <div className="filter-bar" style={{ marginBottom: 0 }}>
+                  <div className="filter-group">
+                    <label>Період від *</label>
+                    <input type="date" value={periodFrom} onChange={e => setPeriodFrom(e.target.value)} />
+                  </div>
+                  <div className="filter-group">
+                    <label>Період до *</label>
+                    <input type="date" value={periodTo} onChange={e => setPeriodTo(e.target.value)} />
+                  </div>
+                  <div className="filter-group" style={{ minWidth: 300 }}>
+                    <label>Режим заміни</label>
+                    <select value={replaceMode} onChange={e => setReplaceMode(e.target.value)}>
+                      <option value="replace_by_period">Замінити за period_month + source_id</option>
+                      <option value="append">Дописати (без видалення)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Load button ── */}
+          {sourceId && (
+            <div style={{ marginBottom: 12 }}>
+              <button className="btn btn-primary" style={{ height: 40, fontSize: 14 }}
+                      onClick={handleLoad} disabled={!canLoad}>
+                {loading ? "Завантаження з OLAP..." : "📥 Отримати дані та завантажити в staging"}
               </button>
             </div>
           )}
-        </div>
 
-        {/* ── Alerts ── */}
-        {error && (
-          <div style={{ margin: "8px 20px 0", padding: "8px 12px", background: "#fee2e2",
-                        border: "1px solid #fca5a5", borderRadius: 6, fontSize: 13, color: "#991b1b",
-                        display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <span>{typeof error === "string" ? error : JSON.stringify(error)}</span>
-            <button onClick={() => setError(null)} style={{ background: "none", border: "none",
-                     cursor: "pointer", color: "#991b1b", fontSize: 16, lineHeight: 1, flexShrink: 0 }}>✕</button>
-          </div>
-        )}
-        {success && (
-          <div style={{ margin: "8px 20px 0", padding: "8px 12px", background: "#d1fae5",
-                        border: "1px solid #6ee7b7", borderRadius: 6, fontSize: 13, color: "#065f46",
-                        display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <span>{success}</span>
-            <button onClick={() => setSuccess(null)} style={{ background: "none", border: "none",
-                     cursor: "pointer", fontSize: 16, lineHeight: 1, color: "#065f46", flexShrink: 0 }}>✕</button>
-          </div>
-        )}
+          {/* Load result summary */}
+          {loadResult && (
+            <div className="staging-result-banner">
+              OLAP: <strong>{loadResult.rows_total}</strong> рядків
+              {loadResult.rows_filtered_out > 0 && (
+                <span style={{ color: "var(--warning)", marginLeft: 8 }}>
+                  — поза [{periodFrom}..{periodTo}]: <strong>{loadResult.rows_filtered_out}</strong>
+                </span>
+              )}
+              {" "} | Staging: <strong>{loadResult.rows_loaded}</strong>
+              {" "} | Валідних: <strong style={{ color: "var(--success)" }}>{loadResult.rows_valid}</strong>
+              {" "} | Помилок: <strong style={{ color: loadResult.rows_invalid > 0 ? "var(--danger)" : "var(--success)" }}>{loadResult.rows_invalid}</strong>
+            </div>
+          )}
 
-        {/* ── Content ── */}
-        <div style={{ flex: 1, padding: "12px 20px", overflow: "auto" }}>
+          {/* ── Step 4: Staging preview ── */}
+          {staging && batchId && (
+            <div className="import-section-card">
+              <div className="import-section-header">
+                <h3>
+                  Staging
+                  <span className="staging-batch-badge" style={{ marginLeft: 8 }}>
+                    #{batchId}
+                  </span>
+                  {filterLoading && <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400, marginLeft: 8 }}>оновлення…</span>}
+                </h3>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="btn btn-secondary btn-sm" onClick={handleRefreshStaging} disabled={filterLoading}>
+                    ↻ Оновити
+                  </button>
+                  {importType === "sales_fact" && staging.invalid > 0 && (
+                    <button className="btn btn-secondary btn-sm"
+                            style={{ borderColor: "var(--info)", color: "var(--info)", background: "var(--info-bg)" }}
+                            onClick={() => setShowBulkUpdate(true)}>
+                      ✏ Масове заповнення
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="import-section-body">
+                {/* KPI Strip */}
+                <StagingKpiStrip
+                  staging={staging}
+                  activeFilter={stagingFilters.status}
+                  onFilter={handleChipFilter}
+                />
 
-          {/* ── Step 1: Type selector ── */}
-          {!importType && (
-            <div style={secS}>
-              <div style={secTitleS}>Що імпортуємо?</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {Object.entries(IMPORT_TYPES).map(([code, m]) => (
-                  <div key={code} onClick={() => handleTypeSelect(code)}
-                       style={{
-                         padding: "12px 16px", borderRadius: 8, cursor: "pointer",
-                         border: "2px solid #e5e7eb", background: "#fff",
-                         minWidth: 150, transition: "all .12s",
-                       }}
-                       onMouseEnter={e => { e.currentTarget.style.borderColor = "#7c3aed"; e.currentTarget.style.background = "#faf5ff"; }}
-                       onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#fff"; }}>
-                    <div style={{ fontSize: 20, marginBottom: 4 }}>{m.icon}</div>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>{m.label}</div>
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{m.desc}</div>
+                {/* Filter bar */}
+                <StagingFilterBar
+                  importType={importType}
+                  filterDraft={filterDraft}
+                  onChange={handleFilterDraftChange}
+                  onReset={handleFilterReset}
+                  density={density}
+                  onDensity={setDensity}
+                  stagingFilters={stagingFilters}
+                  filterLoading={filterLoading}
+                />
+
+                {/* Staging table */}
+                <div className="table-wrap-sticky">
+                  <StagingRows
+                    importType={importType}
+                    rows={stagingRows}
+                    onRowClick={importType === "sales_fact" ? setDetailRow : undefined}
+                    density={density}
+                  />
+                </div>
+
+                {/* Pagination */}
+                <Pagination
+                  page={stagingPage}
+                  totalPages={staging.total_pages || 1}
+                  total={staging.filtered_total ?? staging.total}
+                  pageRows={(staging.rows || []).length}
+                  onPage={setStagingPage}
+                />
+
+                {importType === "sales_fact" && (
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                    Клік на рядок — деталі та raw OLAP
                   </div>
-                ))}
+                )}
+
+                {/* Commit block */}
+                <div style={{ marginTop: 16, padding: "14px 16px", background: "var(--gray-50)",
+                              border: "1px solid var(--border)", borderRadius: "var(--radius-lg)" }}>
+                  {!commitResult ? (
+                    <>
+                      {staging.invalid > 0 && (
+                        <div className="existing-warning" style={{ marginBottom: 10 }}>
+                          Буде записано <strong style={{ margin: "0 4px" }}>{staging.valid}</strong> валідних.{" "}
+                          <strong>{staging.invalid}</strong> невалідних залишаться у staging.
+                        </div>
+                      )}
+                      <button className="btn btn-success" style={{ fontSize: 14, height: 40 }}
+                              onClick={handleCommit} disabled={committing || !canCommit}>
+                        {committing ? "Запис..." : canCommit
+                          ? meta?.isArticleFlow    ? `✅ Передати ${staging.valid} статей у відповідність`
+                          : meta?.isBrandFlow      ? `✅ Передати ${staging.valid} брендів у відповідність`
+                          : meta?.isDepartmentFlow ? `✅ Передати ${staging.valid} підрозділів у реєстр`
+                          :                          `✅ Завантажити ${staging.valid} рядків → ${meta?.targetLabel}`
+                          : "Немає валідних рядків"}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="success-message" style={{ margin: 0 }}>
+                      {meta?.isArticleFlow ? (
+                        <>
+                          <div>
+                            Статті завантажено у реєстр джерел:{" "}
+                            <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
+                            (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
+                            Нових прив'язок: <strong>{commitResult.new_mappings ?? 0}</strong>.
+                          </div>
+                          {setActivePage && (
+                            <div style={{ marginTop: 8, fontSize: 12 }}>
+                              Перейдіть у{" "}
+                              <button onClick={() => setActivePage("articleSourceMapping")}
+                                style={{ color: "var(--brand)", background: "none", border: "none",
+                                         cursor: "pointer", fontWeight: 600, fontSize: 12, padding: 0 }}>
+                                Відповідність статей →
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : meta?.isBrandFlow ? (
+                        <>
+                          <div>
+                            Бренди завантажено:{" "}
+                            <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
+                            (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
+                            Прив'язок: <strong>{commitResult.new_mappings ?? 0}</strong>.
+                          </div>
+                          {setActivePage && (
+                            <div style={{ marginTop: 8, fontSize: 12 }}>
+                              <button onClick={() => setActivePage("brandSourceMapping")}
+                                style={{ color: "var(--brand)", background: "none", border: "none",
+                                         cursor: "pointer", fontWeight: 600, fontSize: 12, padding: 0 }}>
+                                Відповідність брендів →
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : meta?.isDepartmentFlow ? (
+                        <>
+                          <div>
+                            Підрозділи завантажено:{" "}
+                            <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
+                            (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
+                            Прив'язок: <strong>{commitResult.new_mappings ?? 0}</strong>.
+                          </div>
+                          {setActivePage && (
+                            <div style={{ marginTop: 8, fontSize: 12 }}>
+                              <button onClick={() => setActivePage("departmentSourceMapping")}
+                                style={{ color: "var(--brand)", background: "none", border: "none",
+                                         cursor: "pointer", fontWeight: 600, fontSize: 12, padding: 0 }}>
+                                Відповідність підрозділів →
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : commitResult.upserted != null ? (
+                        <>Upsert: <strong>{commitResult.upserted}</strong> рядків
+                            (вставлено {commitResult.inserted}, оновлено {commitResult.updated})
+                            у {meta?.targetLabel}</>
+                      ) : (
+                        <>Записано <strong>{commitResult.committed}</strong> рядків у {meta?.targetLabel}
+                            {commitResult.deleted_from_target > 0 &&
+                              <span style={{ color: "var(--warning)" }}> (замінено {commitResult.deleted_from_target} попередніх)</span>}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
 
-          {importType && (
-            <>
-              {/* ── Step 2: Source ── */}
-              <div style={secS}>
-                <div style={secTitleS}>Джерело даних</div>
-                {sources.length === 0 && (
-                  <div style={{ padding: "8px 12px", background: "#fef3c7", border: "1px solid #f59e0b",
-                                borderRadius: 6, marginBottom: 10, fontSize: 12 }}>
-                    Немає джерел з типом "{meta?.label}". Налаштуйте джерело у «Відповідність».
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>Джерело ({meta?.label})</label>
-                    <select value={sourceId} onChange={e => handleSourceChange(e.target.value)}
-                            style={{ ...selS, minWidth: 280 }}>
-                      <option value="">— оберіть —</option>
-                      {sources.map(s => (
-                        <option key={s.id} value={s.id}>{s.source_name} ({s.source_type})</option>
-                      ))}
-                    </select>
-                  </div>
-                  {sourceId && (
-                    <button style={btnSec} onClick={handlePreview} disabled={previewing}>
-                      {previewing ? "Отримання..." : "Отримати дані OLAP"}
-                    </button>
-                  )}
-                </div>
-
-                <RawPreviewPanel data={previewData} />
-                {sourceId && (
-                  <MappingEditorWithSamples
-                    sourceId={Number(sourceId)}
-                    previewData={previewData}
-                    importType={importType}
-                  />
-                )}
-              </div>
-
-              {/* ── Step 3: Period (sales_fact only) ── */}
-              {sourceId && meta?.hasPeriod && (
-                <div style={secS}>
-                  <div style={secTitleS}>Параметри імпорту</div>
-                  <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
-                    {[
-                      { label: "Період від *", val: periodFrom, set: setPeriodFrom },
-                      { label: "Період до *",  val: periodTo,   set: setPeriodTo   },
-                    ].map(({ label, val, set }) => (
-                      <div key={label} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>{label}</label>
-                        <input type="date" value={val} onChange={e => set(e.target.value)}
-                               style={{ ...selS, minWidth: 150 }} />
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                      <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>Режим заміни</label>
-                      <select value={replaceMode} onChange={e => setReplaceMode(e.target.value)} style={{ ...selS, minWidth: 280 }}>
-                        <option value="replace_by_period">Замінити за period_month + source_id</option>
-                        <option value="append">Дописати (без видалення)</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Load button ── */}
-              {sourceId && (
-                <div style={{ marginBottom: 12 }}>
-                  <button style={{ ...btnPri(!canLoad), padding: "8px 22px", fontSize: 13 }}
-                          onClick={handleLoad} disabled={!canLoad}>
-                    {loading ? "Завантаження з OLAP..." : "📥 Отримати дані та завантажити в staging"}
-                  </button>
-                </div>
-              )}
-
-              {/* Load result summary */}
-              {loadResult && (
-                <div style={{ marginBottom: 10, padding: "8px 14px", background: "#eff6ff",
-                              border: "1px solid #bfdbfe", borderRadius: 6, fontSize: 12 }}>
-                  OLAP: <strong>{loadResult.rows_total}</strong> рядків
-                  {loadResult.rows_filtered_out > 0 && (
-                    <span style={{ color: "#92400e" }}>
-                      {" "}— поза [{periodFrom}..{periodTo}]: <strong>{loadResult.rows_filtered_out}</strong>
-                    </span>
-                  )}
-                  {" "} | Staging: <strong>{loadResult.rows_loaded}</strong>
-                  {" "} | Валідних: <strong style={{ color: "#065f46" }}>{loadResult.rows_valid}</strong>
-                  {" "} | Помилок: <strong style={{ color: loadResult.rows_invalid > 0 ? "#991b1b" : "#065f46" }}>{loadResult.rows_invalid}</strong>
-                </div>
-              )}
-
-              {/* ── Step 4: Staging preview ── */}
-              {staging && batchId && (
-                <div style={secS}>
-                  <div style={secTitleS}>
-                    Staging — batch #{batchId}
-                    {filterLoading && <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>оновлення…</span>}
-                  </div>
-
-                  {/* KPI pills */}
-                  <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <KpiPill label="Всього"   value={staging.total}   color="#374151" />
-                    <KpiPill label="Валідних" value={staging.valid}   color="#065f46" />
-                    <KpiPill label="Помилок"  value={staging.invalid} color={staging.invalid > 0 ? "#991b1b" : "#065f46"} />
-                    {staging.total_sales_vat != null && (
-                      <KpiPill label="Продажі з ПДВ" value={fmtNum(staging.total_sales_vat)} />
-                    )}
-                    {(staging.period_from || staging.period_to) && (
-                      <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 4 }}>
-                        Період: <strong style={{ color: "#374151" }}>{staging.period_from || "—"}</strong>
-                        {" — "}
-                        <strong style={{ color: "#374151" }}>{staging.period_to || "—"}</strong>
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Filter tabs */}
-                  <div style={{ display: "flex", gap: 5, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {[
-                      { label: `Всі (${staging.total})`,       val: null },
-                      { label: `Валідні (${staging.valid})`,   val: "valid" },
-                      { label: `Помилки (${staging.invalid})`, val: "invalid" },
-                    ].map(f => (
-                      <button key={String(f.val)} onClick={() => handleFilterChange(f.val)}
-                        style={{
-                          padding: "3px 10px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-                          border: "1px solid #d1d5db",
-                          background: statusFilter === f.val ? "#374151" : "#fff",
-                          color:      statusFilter === f.val ? "#fff"    : "#374151",
-                          fontWeight: statusFilter === f.val ? 700       : 400,
-                        }}>
-                        {f.label}
-                      </button>
-                    ))}
-                    <button onClick={handleRefreshStaging} disabled={filterLoading} style={btnGhost}>
-                      {filterLoading ? "..." : "↻ Оновити"}
-                    </button>
-                    {importType === "sales_fact" && staging.invalid > 0 && (
-                      <button onClick={() => setShowBulkUpdate(true)}
-                        style={{ marginLeft: "auto", padding: "3px 12px", fontSize: 11, fontWeight: 600,
-                                 border: "1px solid #3b82f6", borderRadius: 4,
-                                 cursor: "pointer", background: "#eff6ff", color: "#1e40af" }}>
-                        ✏ Масове заповнення
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Department field filters */}
-                  {importType === "departments" && (
-                    <div style={{ marginBottom: 10, padding: "8px 10px", background: "#f9fafb",
-                                  border: "1px solid #e5e7eb", borderRadius: 6 }}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-
-                        {/* Назва — text search (too many unique values for a select) */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <label style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Підрозділ</label>
-                          <input value={deptFilterName} onChange={e => setDeptFilterName(e.target.value)}
-                                 placeholder="Пошук…"
-                                 style={{ padding: "3px 7px", fontSize: 11, border: "1px solid #d1d5db",
-                                          borderRadius: 4, width: 160 }} />
-                        </div>
-
-                        {/* Parent підрозділ — select */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <label style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Parent підрозділ</label>
-                          <select value={deptFilterParentName} onChange={e => setDeptFilterParentName(e.target.value)}
-                            style={{ padding: "3px 7px", fontSize: 11, border: "1px solid #d1d5db",
-                                     borderRadius: 4, minWidth: 160, background: "#fff" }}>
-                            <option value="">Всі</option>
-                            {deptDistinctParents.map(v => (
-                              <option key={v} value={v} title={v}>{v.length > 35 ? v.slice(0, 35) + "…" : v}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Організація — select */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <label style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Організація</label>
-                          <select value={deptFilterOrg} onChange={e => setDeptFilterOrg(e.target.value)}
-                            style={{ padding: "3px 7px", fontSize: 11, border: "1px solid #d1d5db",
-                                     borderRadius: 4, minWidth: 130, background: "#fff" }}>
-                            <option value="">Всі</option>
-                            {deptDistinctOrgs.map(v => (
-                              <option key={v} value={v}>{v}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Філія — select */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <label style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Філія</label>
-                          <select value={deptFilterBranch} onChange={e => setDeptFilterBranch(e.target.value)}
-                            style={{ padding: "3px 7px", fontSize: 11, border: "1px solid #d1d5db",
-                                     borderRadius: 4, minWidth: 110, background: "#fff" }}>
-                            <option value="">Всі</option>
-                            {deptDistinctBranches.map(v => (
-                              <option key={v} value={v}>{v}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Регіон — select */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <label style={{ fontSize: 10, color: "#6b7280", fontWeight: 600 }}>Регіон</label>
-                          <select value={deptFilterRegion} onChange={e => setDeptFilterRegion(e.target.value)}
-                            style={{ padding: "3px 7px", fontSize: 11, border: "1px solid #d1d5db",
-                                     borderRadius: 4, minWidth: 110, background: "#fff" }}>
-                            <option value="">Всі</option>
-                            {deptDistinctRegions.map(v => (
-                              <option key={v} value={v}>{v}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Separated назва — select (лише рядки що мають значення) */}
-                        {deptDistinctSeparated.length > 0 && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            <label style={{ fontSize: 10, color: "#0369a1", fontWeight: 600 }}>Separated назва</label>
-                            <select value={deptFilterSeparated} onChange={e => setDeptFilterSeparated(e.target.value)}
-                              style={{ padding: "3px 7px", fontSize: 11, border: "1px solid #93c5fd",
-                                       borderRadius: 4, minWidth: 160, background: "#eff6ff" }}>
-                              <option value="">Всі</option>
-                              {deptDistinctSeparated.map(v => (
-                                <option key={v} value={v} title={v}>{v.length > 35 ? v.slice(0, 35) + "…" : v}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        <button onClick={resetDeptFilters} style={{ ...btnGhost, alignSelf: "flex-end" }}>Очистити</button>
-                      </div>
-                      <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 5 }}>
-                        <strong style={{ color: "#374151" }}>{filteredDeptRows.length}</strong> з{" "}
-                        <strong style={{ color: "#374151" }}>{allDeptRows.length}</strong> рядків
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Staging table */}
-                  <div style={{ overflowX: "auto", maxHeight: 400, overflowY: "auto",
-                                border: "1px solid #e5e7eb", borderRadius: 6 }}>
-                    <StagingRows
-                      importType={importType}
-                      rows={filteredDeptRows}
-                      onRowClick={importType === "sales_fact" ? setDetailRow : undefined}
-                    />
-                  </div>
-                  {importType === "sales_fact" && (
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>
-                      Клік на рядок — деталі та raw OLAP
-                    </div>
-                  )}
-
-                  {/* Commit block */}
-                  <div style={{ marginTop: 12, padding: "12px 14px", background: "#f9fafb",
-                                border: "1px solid #e5e7eb", borderRadius: 6 }}>
-                    {!commitResult ? (
-                      <>
-                        {staging.invalid > 0 && (
-                          <div style={{ padding: "6px 10px", background: "#fef3c7",
-                                        border: "1px solid #f59e0b", borderRadius: 5,
-                                        marginBottom: 10, fontSize: 12 }}>
-                            Буде записано <strong>{staging.valid}</strong> валідних.{" "}
-                            <strong>{staging.invalid}</strong> невалідних залишаться у staging.
-                          </div>
-                        )}
-                        <button style={{ ...btnPri(!canLoad || committing || !canCommit), padding: "7px 20px", fontSize: 13 }}
-                                onClick={handleCommit} disabled={committing || !canCommit}>
-                          {committing ? "Запис..." : canCommit
-                            ? meta?.isArticleFlow    ? `✅ Передати ${staging.valid} статей у відповідність`
-                            : meta?.isBrandFlow      ? `✅ Передати ${staging.valid} брендів у відповідність`
-                            : meta?.isDepartmentFlow ? `✅ Передати ${staging.valid} підрозділів у реєстр`
-                            :                          `✅ Завантажити ${staging.valid} рядків → ${meta?.targetLabel}`
-                            : "Немає валідних рядків"}
-                        </button>
-                      </>
-                    ) : (
-                      <div style={{ padding: "10px 14px", background: "#d1fae5",
-                                    border: "1px solid #6ee7b7", borderRadius: 6, fontSize: 13 }}>
-                        {meta?.isArticleFlow ? (
-                          <>
-                            <div>
-                              Статті завантажено у реєстр джерел:{" "}
-                              <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
-                              (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
-                              Нових прив'язок: <strong>{commitResult.new_mappings ?? 0}</strong>.
-                            </div>
-                            {setActivePage && (
-                              <div style={{ marginTop: 8, fontSize: 12 }}>
-                                Перейдіть у{" "}
-                                <button onClick={() => setActivePage("articleSourceMapping")}
-                                  style={{ color: "#7c3aed", background: "none", border: "none",
-                                           cursor: "pointer", fontWeight: 600, fontSize: 12, padding: 0 }}>
-                                  Відповідність статей →
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        ) : meta?.isBrandFlow ? (
-                          <>
-                            <div>
-                              Бренди завантажено:{" "}
-                              <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
-                              (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
-                              Прив'язок: <strong>{commitResult.new_mappings ?? 0}</strong>.
-                            </div>
-                            {setActivePage && (
-                              <div style={{ marginTop: 8, fontSize: 12 }}>
-                                <button onClick={() => setActivePage("brandSourceMapping")}
-                                  style={{ color: "#7c3aed", background: "none", border: "none",
-                                           cursor: "pointer", fontWeight: 600, fontSize: 12, padding: 0 }}>
-                                  Відповідність брендів →
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        ) : meta?.isDepartmentFlow ? (
-                          <>
-                            <div>
-                              Підрозділи завантажено:{" "}
-                              <strong>{(commitResult.inserted ?? 0) + (commitResult.updated ?? 0)}</strong> рядків
-                              (нових: {commitResult.inserted ?? 0}, оновлено: {commitResult.updated ?? 0}).
-                              Прив'язок: <strong>{commitResult.new_mappings ?? 0}</strong>.
-                            </div>
-                            {setActivePage && (
-                              <div style={{ marginTop: 8, fontSize: 12 }}>
-                                <button onClick={() => setActivePage("departmentSourceMapping")}
-                                  style={{ color: "#7c3aed", background: "none", border: "none",
-                                           cursor: "pointer", fontWeight: 600, fontSize: 12, padding: 0 }}>
-                                  Відповідність підрозділів →
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        ) : commitResult.upserted != null ? (
-                          <>Upsert: <strong>{commitResult.upserted}</strong> рядків
-                              (вставлено {commitResult.inserted}, оновлено {commitResult.updated})
-                              у {meta?.targetLabel}</>
-                        ) : (
-                          <>Записано <strong>{commitResult.committed}</strong> рядків у {meta?.targetLabel}
-                              {commitResult.deleted_from_target > 0 &&
-                                <span style={{ color: "#92400e" }}> (замінено {commitResult.deleted_from_target} попередніх)</span>}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Batch history ── */}
-              <div style={secS}>
-                <div style={secTitleS}>Історія імпортів — {meta?.label}</div>
-                <BatchHistoryPanel
-                  key={`${importType}-${historyKey}`}
-                  importType={importType}
-                  refreshKey={historyKey}
-                  onSelect={handleViewStaging}
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+          {/* ── Batch history ── */}
+          <div className="import-section-card">
+            <div className="import-section-header">
+              <h3>Історія імпортів — {meta?.label}</h3>
+            </div>
+            <div className="import-section-body">
+              <BatchHistoryPanel
+                key={`${importType}-${historyKey}`}
+                importType={importType}
+                refreshKey={historyKey}
+                onSelect={handleViewStaging}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

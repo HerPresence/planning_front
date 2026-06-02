@@ -32,6 +32,7 @@ import ImportDataPage from "./pages/ImportDataPage";
 import ArticleSourceMappingPage from "./pages/ArticleSourceMappingPage";
 import BrandSourceMappingPage from "./pages/BrandSourceMappingPage";
 import DepartmentSourceMappingPage from "./pages/DepartmentSourceMappingPage";
+import PlanningPage from "./pages/PlanningPage";
 
 function AppContent() {
   const { currentUser, loading, logout, forceChangePassword } = useAuth();
@@ -41,6 +42,7 @@ function AppContent() {
   const [importInitialTab,      setImportInitialTab]      = useState("sources");
   const [importInitialSourceId, setImportInitialSourceId] = useState("");
   const [deptMappingSourceId,   setDeptMappingSourceId]   = useState("");
+  const [deptMappingDeptUid,    setDeptMappingDeptUid]    = useState("");
 
   if (loading) {
     return (
@@ -66,6 +68,7 @@ function AppContent() {
     }
     if (page === "departmentSourceMapping") {
       setDeptMappingSourceId(params.sourceId || "");
+      setDeptMappingDeptUid(params.deptUid || "");
     }
     setActivePage(page);
   };
@@ -108,7 +111,8 @@ function AppContent() {
       case "importData":            return <ImportDataPage setActivePage={navigateTo} />;
       case "articleSourceMapping":  return <ArticleSourceMappingPage setActivePage={navigateTo} />;
       case "brandSourceMapping":      return <BrandSourceMappingPage />;
-      case "departmentSourceMapping": return <DepartmentSourceMappingPage initialSourceId={deptMappingSourceId} setActivePage={navigateTo} />;
+      case "departmentSourceMapping": return <DepartmentSourceMappingPage initialSourceId={deptMappingSourceId} initialDeptUid={deptMappingDeptUid} setActivePage={navigateTo} />;
+      case "planningSales":           return <PlanningPage setActivePage={navigateTo} />;
 
       default:
         return (
@@ -146,6 +150,7 @@ function AppContent() {
       case "articleSourceMapping":  return "Відповідність статей";
       case "brandSourceMapping":      return "Відповідність брендів";
       case "departmentSourceMapping": return "Відповідність підрозділів";
+      case "planningSales":           return "Планування продажів";
       default:               return "Система планування";
     }
   };

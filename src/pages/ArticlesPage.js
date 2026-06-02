@@ -3,7 +3,7 @@ import { usePagePermission } from "../hooks/usePagePermission";
 import Modal from "../components/ui/Modal";
 import SearchableSelect from "../components/ui/SearchableSelect";
 import LevelCombobox from "../components/ui/LevelCombobox";
-import { getArticles, createArticle, updateArticle, mergePreview, mergeArticles } from "../api/articlesApi";
+import { getArticles, createArticle, updateArticle, mergePreview, mergeArticles, exportCsv } from "../api/articlesApi";
 import { getPnlStructures } from "../api/pnlStructureApi";
 import { getLevel2, createLevel2, getLevel1, createLevel1 } from "../api/pnlLevelsApi";
 
@@ -181,6 +181,10 @@ function ArticlesPage({ setActivePage }) {
   const [hideMerged,     setHideMerged]     = useState(true);
   const [mergeSuccess,   setMergeSuccess]   = useState(null);
 
+  // ── CSV export ───────────────────────────────────────────────────────────
+  const [exporting,    setExporting]    = useState(false);
+  const [exportError,  setExportError]  = useState(null);
+
   // ── Load ─────────────────────────────────────────────────────────────────────
   const buildParams = useCallback(() => {
     const p = { page, page_size: PAGE_SIZE };
@@ -271,6 +275,39 @@ function ArticlesPage({ setActivePage }) {
       only_dup_uid:  () => setOnlyDupUid(false),
     };
     map[key]?.(); setPage(1);
+  };
+
+  const handleExport = async () => {
+    setExporting(true); setExportError(null);
+    try {
+      const filters = {
+        search:               search               || undefined,
+        article_type:         filterType           || undefined,
+        is_active:            filterActive         || undefined,
+        level1:               filterLevel1         || undefined,
+        level2:               filterLevel2         || undefined,
+        pnl_id:               filterPnlId          || undefined,
+        uid_expense_article:  filterUid            || undefined,
+        expense_element:      filterElement        || undefined,
+        expense_company:      filterCompany        || undefined,
+        level1_olap:          filterL1Olap         || undefined,
+        level2_olap:          filterL2Olap         || undefined,
+        only_with_uid:        onlyWithUid          || undefined,
+        only_without_uid:     onlyWithoutUid       || undefined,
+        only_without_element: onlyWithoutElement   || undefined,
+        only_dup_name:        onlyDupName          || undefined,
+        only_dup_uid:         onlyDupUid           || undefined,
+        hide_merged:          hideMerged,
+      };
+      // Clean undefined values
+      Object.keys(filters).forEach(k => filters[k] === undefined && delete filters[k]);
+      const ids = selectedIds.size > 0 ? [...selectedIds] : [];
+      await exportCsv(filters, ids);
+    } catch {
+      setExportError("Помилка експорту — спробуйте ще раз");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const activeFilters = Object.fromEntries(
@@ -431,6 +468,19 @@ function ArticlesPage({ setActivePage }) {
               style={{ padding: "5px 11px", fontSize: 12, fontWeight: 500, border: "1px solid #d1d5db",
                        borderRadius: 5, background: "#fff", cursor: "pointer", color: "#374151" }}>
               🔗 Відповідність
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              title={selectedIds.size > 0
+                ? `Експортує ${selectedIds.size} вибраних рядків у CSV`
+                : "Експортує всі рядки за поточними фільтрами у CSV"}
+              style={{ padding: "5px 11px", fontSize: 12, fontWeight: 500,
+                       border: "1px solid #6ee7b7", borderRadius: 5,
+                       background: exporting ? "#f0fdf4" : "#f0fdf4",
+                       cursor: exporting ? "default" : "pointer",
+                       color: "#065f46", opacity: exporting ? 0.7 : 1 }}>
+              {exporting ? "…" : selectedIds.size > 0 ? `⬇ Експорт CSV (${selectedIds.size})` : "⬇ Експорт CSV"}
             </button>
             <button onClick={() => setShowColPanel(v => !v)}
               title="Налаштування колонок"
@@ -682,6 +732,15 @@ function ArticlesPage({ setActivePage }) {
             <span>✅ {mergeSuccess}</span>
             <button onClick={() => setMergeSuccess(null)}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 }}>✕</button>
+          </div>
+        )}
+        {exportError && (
+          <div style={{ margin: "8px 20px", padding: "8px 12px", background: "#fee2e2",
+                        border: "1px solid #fca5a5", borderRadius: 5, fontSize: 13,
+                        color: "#991b1b", display: "flex", justifyContent: "space-between" }}>
+            <span>{exportError}</span>
+            <button onClick={() => setExportError(null)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#991b1b", fontWeight: 700 }}>✕</button>
           </div>
         )}
         {loadError && (

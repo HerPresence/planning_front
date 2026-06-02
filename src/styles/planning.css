@@ -1,0 +1,350 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Planning Page — component-specific styles
+   Uses CSS variables from theme.css
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Diff text colours ──────────────────────────────────────────────────── */
+.diff-pos  { color: var(--success); font-weight: 600; }
+.diff-neg  { color: var(--danger);  font-weight: 600; }
+.diff-zero { color: var(--text-muted); }
+
+/* ── KPI section (Fact vs Plan summary) ─────────────────────────────────── */
+.plan-kpi-section {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plan-kpi-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.plan-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.plan-kpi-cell {
+  background: var(--gray-50);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  text-align: right;
+}
+
+.plan-kpi-cell-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.plan-kpi-cell-value {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.plan-kpi-cell.kpi-fact  .plan-kpi-cell-value { color: var(--text-secondary); }
+.plan-kpi-cell.kpi-plan  .plan-kpi-cell-value { color: var(--brand); }
+.plan-kpi-cell.kpi-diff-pos { border-left: 3px solid var(--success); }
+.plan-kpi-cell.kpi-diff-pos .plan-kpi-cell-value { color: var(--success); }
+.plan-kpi-cell.kpi-diff-neg { border-left: 3px solid var(--danger); }
+.plan-kpi-cell.kpi-diff-neg .plan-kpi-cell-value { color: var(--danger); }
+.plan-kpi-cell.kpi-diff-zero .plan-kpi-cell-value { color: var(--text-muted); }
+
+/* ── Generation result block ─────────────────────────────────────────────── */
+.gen-result-block {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius-md);
+}
+
+.gen-result-title {
+  font-weight: 700;
+  color: var(--success);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.gen-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px 16px;
+  margin-bottom: 4px;
+}
+
+.gen-stat-item {}
+
+.gen-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 2px;
+}
+
+.gen-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.gen-stat-item.stat-warn .gen-stat-value { color: var(--warning); }
+
+.gen-result-meta {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--success-border);
+}
+
+.gen-result-meta-item { display: flex; gap: 4px; align-items: center; }
+.gen-result-meta-label { color: var(--text-muted); }
+.gen-result-meta-value { font-weight: 600; color: var(--text-secondary); }
+.gen-result-meta-value.meta-yes { color: var(--success); }
+.gen-result-meta-value.meta-no  { color: var(--text-muted); }
+
+/* ── Coverage block ──────────────────────────────────────────────────────── */
+.coverage-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--success-border);
+}
+
+.coverage-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.coverage-row-warn td { background: var(--warning-bg) !important; }
+
+.coverage-warn-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+/* ── Scope chips ─────────────────────────────────────────────────────────── */
+.scope-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+
+.scope-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--gray-100);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-chip-type {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.scope-chip-val {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-chip-all {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Period chip ─────────────────────────────────────────────────────────── */
+.period-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* ── Rule form ───────────────────────────────────────────────────────────── */
+.rule-form {
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.rule-form.rule-form-create {
+  background: var(--gray-50);
+  border: 1px solid var(--border);
+}
+
+.rule-form.rule-form-edit {
+  background: #fff8f0;
+  border: 1px solid #f59e0b;
+}
+
+.rule-form-mode-label {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.rule-form-create .rule-form-mode-label { color: var(--text-secondary); }
+.rule-form-edit   .rule-form-mode-label { color: #92400e; }
+
+.rule-form-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.7fr 0.5fr;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.rule-form-period-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.rule-form-scope-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.rule-form-scope-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.rule-form-scope-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.scope-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.scope-row-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 16px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.scope-row-remove:hover { color: var(--danger); }
+
+.scope-row select { min-width: 160px; flex-shrink: 0; }
+
+.rule-form-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Fact vs Plan table row colours ─────────────────────────────────────── */
+.data-table.compact tbody tr.row-no-rules td { background: #fffbeb !important; }
+.data-table.compact tbody tr.row-no-rules:hover td { background: #fef3c7 !important; }
+
+/* ── History log rows ─────────────────────────────────────────────────────── */
+.gen-log-header {
+  padding: 10px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gen-log-header.is-latest { background: var(--brand-faint); }
+.gen-log-header.is-latest .gen-log-run-label { color: var(--brand); }
+
+.gen-log-run-label { font-weight: 700; font-size: 13px; color: var(--text-primary); }
+
+.gen-log-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.gen-log-detail {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--gray-50);
+  font-size: 12px;
+}
+
+.gen-log-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px 24px;
+  margin-bottom: 12px;
+}
+
+.gen-log-detail-kv { }
+.gen-log-detail-key { color: var(--text-muted); }
+.gen-log-detail-val { font-weight: 600; }
+
+/* ── Table header groups ─────────────────────────────────────────────────── */
+.th-group-vat  { background: #eff6ff !important; color: #1e40af; }
+.th-group-kg   { background: #f0fdf4 !important; color: #15803d; }
+.th-group-dal  { background: #fefce8 !important; color: #92400e; }
+.th-group-price { background: var(--gray-100) !important; }

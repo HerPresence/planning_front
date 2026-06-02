@@ -80,12 +80,13 @@ function Sidebar({ activePage, setActivePage }) {
   ].filter(Boolean);
 
   const planItems = [
-    item("cashflow",      "💰 БДДС"),
-    item("pnlData",       "📊 План / Факт PnL"),
-    item("pnlImport",     "📥 Імпорт PnL"),
-    item("importData",    "📂 Імпорт даних"),
-    item("factTurnover",  "🛒 Факт продажів"),
-    item("budgets",       "📦 Бюджети витрат"),
+    item("cashflow",       "💰 БДДС"),
+    item("pnlData",        "📊 План / Факт PnL"),
+    item("pnlImport",      "📥 Імпорт PnL"),
+    item("importData",     "📂 Імпорт даних"),
+    item("factTurnover",   "🛒 Факт продажів"),
+    item("planningSales",  "📈 Планування продажів"),
+    item("budgets",        "📦 Бюджети витрат"),
   ].filter(Boolean);
 
   const adminItems = [
@@ -136,6 +137,23 @@ function Sidebar({ activePage, setActivePage }) {
           </>
         )}
       </nav>
+      <div style={{
+        padding: "8px 12px", marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.08)",
+        fontSize: 9, color: "rgba(255,255,255,0.3)", lineHeight: 1.6,
+        fontFamily: "monospace", letterSpacing: "0.02em", userSelect: "text",
+      }}>
+        <div>
+          v{process.env.REACT_APP_VERSION || "dev"}
+          {process.env.REACT_APP_GIT_HASH && process.env.REACT_APP_GIT_HASH !== "n/a"
+            ? ` (${process.env.REACT_APP_GIT_HASH})`
+            : ""}
+        </div>
+        <div title={process.env.REACT_APP_BUILD_TIME || "local dev server"}>
+          {process.env.REACT_APP_BUILD_TIME
+            ? process.env.REACT_APP_BUILD_TIME.slice(0, 16).replace("T", " ")
+            : "⚠ dev-server"}
+        </div>
+      </div>
     </aside>
   );
 }
