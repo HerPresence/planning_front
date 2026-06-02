@@ -1,7 +1,13 @@
 import axios from "axios";
 import { API_BASE_URL } from "./apiConfig";
 
-const BASE = `${API_BASE_URL}/department-source-mapping`;
+const BASE         = `${API_BASE_URL}/department-source-mapping`;
+const PLANNING_BASE = `${API_BASE_URL}/planning`;
+
+export const getDeptPlanningCoverage = (sourceId = null) =>
+  axios.get(`${PLANNING_BASE}/department-mapping-coverage`,
+    { params: sourceId ? { source_id: sourceId } : {} }
+  ).then(r => r.data);
 
 export const getStagedDepartments = (params = {}) =>
   axios.get(`${BASE}/staged`, { params }).then(r => r.data);
@@ -53,3 +59,39 @@ export const getDictEntries = (dictType, search = null) =>
 
 export const suggestMatch = (source_id, source_department_id) =>
   axios.post(`${BASE}/suggest-match`, { source_id, source_department_id }).then(r => r.data);
+
+export const getSimilarDepartments = (source_id, source_department_id) =>
+  axios.get(`${BASE}/similar-departments`, { params: { source_id, source_department_id } }).then(r => r.data);
+
+export const bulkBindSuggested = (body = {}) =>
+  axios.post(`${BASE}/bulk-bind-suggested-departments`, body).then(r => r.data);
+
+export const bulkBindSuggestedPreview = (body = {}) =>
+  axios.post(`${BASE}/bulk-bind-suggested-preview`, body).then(r => r.data);
+
+export const getStagedDeptPlanningUnmapped = (params = {}) =>
+  axios.get(`${BASE}/staged`, { params: { ...params, planning_unmapped: true } }).then(r => r.data);
+
+export const getBulkCreateParentsPreview = (params = {}) =>
+  axios.get(`${BASE}/bulk-create-parents-preview`, { params }).then(r => r.data);
+
+export const bulkCreateParents = (body) =>
+  axios.post(`${BASE}/bulk-create-parents`, body).then(r => r.data);
+
+export const getUidGroups = (params = {}) =>
+  axios.get(`${BASE}/uid-groups`, { params }).then(r => r.data);
+
+export const uidGroupBind = (body) =>
+  axios.post(`${BASE}/uid-groups/bind`, body).then(r => r.data);
+
+export const bulkProcessUidGroups = (body) =>
+  axios.post(`${BASE}/bulk-process-uid-groups`, body).then(r => r.data);
+
+export const autoMatchByUid = () =>
+  axios.post(`${BASE}/auto-match-by-uid`).then(r => r.data);
+
+export const getSameNameConflicts = (params = {}) =>
+  axios.get(`${BASE}/same-name-conflicts`, { params }).then(r => r.data);
+
+export const bulkRemap = (body) =>
+  axios.post(`${BASE}/bulk-remap`, body).then(r => r.data);

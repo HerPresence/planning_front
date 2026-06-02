@@ -80,3 +80,9 @@ export async function deleteBind(sourceId, sourceArticleId) {
   );
   return res.data;
 }
+
+export async function getArticleCoverage(sourceId) {
+  const params = sourceId ? { source_id: sourceId } : {};
+  const res = await axios.get(`${API_URL}/coverage`, { params });
+  return res.data;
+}

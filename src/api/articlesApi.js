@@ -1,17 +1,18 @@
 import axios from "axios";
-
 import { API_BASE_URL } from "./apiConfig";
 
 const API_URL = `${API_BASE_URL}/articles`;
 
-export async function getArticles() {
-  const res = await axios.get(API_URL);
+export async function getArticles(params = {}) {
+  const p = { ...params };
+  // Strip empty strings so backend doesn't filter on them
+  Object.keys(p).forEach(k => { if (p[k] === "" || p[k] === null || p[k] === undefined) delete p[k]; });
+  const res = await axios.get(API_URL, { params: p });
   return res.data;
 }
 
 export async function createArticle(form) {
   const data = new FormData();
-
   data.append("article_id",          form.article_id);
   data.append("article_name",        form.article_name);
   data.append("article_type",        form.article_type        || "");
@@ -23,14 +24,29 @@ export async function createArticle(form) {
   data.append("expense_company",     form.expense_company     || "");
   data.append("level1_olap",         form.level1_olap         || "");
   data.append("level2_olap",         form.level2_olap         || "");
-
   const res = await axios.post(API_URL, data);
+  return res.data;
+}
+
+export async function mergePreview(targetArticleId, sourceArticleIds) {
+  const res = await axios.post(`${API_URL}/merge-preview`, {
+    target_article_id: targetArticleId,
+    source_article_ids: sourceArticleIds,
+  });
+  return res.data;
+}
+
+export async function mergeArticles(targetArticleId, sourceArticleIds, reason) {
+  const res = await axios.post(`${API_URL}/merge`, {
+    target_article_id:  targetArticleId,
+    source_article_ids: sourceArticleIds,
+    reason:             reason || "",
+  });
   return res.data;
 }
 
 export async function updateArticle(oldArticleId, form) {
   const data = new FormData();
-
   data.append("article_name",        form.article_name);
   data.append("article_type",        form.article_type        || "");
   data.append("level1",              form.level1              || "");
@@ -42,7 +58,6 @@ export async function updateArticle(oldArticleId, form) {
   data.append("expense_company",     form.expense_company     || "");
   data.append("level1_olap",         form.level1_olap         || "");
   data.append("level2_olap",         form.level2_olap         || "");
-
   const res = await axios.put(`${API_URL}/${oldArticleId}`, data);
   return res.data;
 }
