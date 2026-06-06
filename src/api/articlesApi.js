@@ -11,6 +11,11 @@ export async function getArticles(params = {}) {
   return res.data;
 }
 
+export async function getArticleById(articleId) {
+  const res = await axios.get(`${API_URL}/${articleId}`);
+  return res.data;
+}
+
 export async function createArticle(form) {
   const data = new FormData();
   data.append("article_id",          form.article_id);
@@ -59,6 +64,16 @@ export async function mergeArticles(targetArticleId, sourceArticleIds, reason) {
     source_article_ids: sourceArticleIds,
     reason:             reason || "",
   });
+  return res.data;
+}
+
+export async function bulkFillPreview(body) {
+  const res = await axios.post(`${API_URL}/bulk-fill-preview`, body);
+  return res.data;
+}
+
+export async function bulkFill(body) {
+  const res = await axios.post(`${API_URL}/bulk-fill`, body);
   return res.data;
 }
 

@@ -105,6 +105,9 @@ function RawRowModal({ row, onClose }) {
                 : null],
               ["product_group_uid", row.product_group_uid],
               ["product_group_name", row.product_group_name],
+              ["sku_uid", row.sku_uid],
+              ["sku_name", row.sku_name],
+              ["source_sku_uid", row.source_sku_uid],
               ["master_brand", row.master_brand_name
                 ? `#${row.master_brand_id} — ${row.master_brand_name}${row.master_brand_uid ? ` [${row.master_brand_uid}]` : ""}`
                 : null],
@@ -866,6 +869,7 @@ export default function SalesFactImportTab() {
                   <th>Підрозділ (джерело)</th>
                   <th>Master підрозділ</th>
                   <th>Бренд / Група (джерело)</th>
+                  <th>SKU (джерело)</th>
                   <th>Master бренд</th>
                   <th style={{ textAlign: "right" }}>з ПДВ</th>
                   <th style={{ textAlign: "right" }}>Роздріб</th>
@@ -892,6 +896,10 @@ export default function SalesFactImportTab() {
                     <td style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={`${r.product_group_uid || "—"} | ${r.product_group_name}`}>
                       {r.product_group_name || <span style={{ color: "#d1d5db" }}>—</span>}
+                    </td>
+                    <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`${r.sku_uid || "—"} | ${r.sku_name || "—"}`}>
+                      {r.sku_name || <span style={{ color: "#d1d5db" }}>—</span>}
                     </td>
                     <td style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={r.master_brand_name || ""}>

@@ -61,3 +61,9 @@ export const getSimilarBrands = (source_brand_name, limit = 10) =>
 
 export const bulkAutoBind = (pairs) =>
   axios.post(`${BASE}/bulk-auto-bind`, { pairs }).then(r => r.data);
+
+export const getBrandConflicts = (params = {}) =>
+  axios.get(`${BASE}/brand-conflicts`, { params }).then(r => r.data);
+
+export const bulkRemapBrands = (body) =>
+  axios.post(`${BASE}/bulk-remap-brands`, body).then(r => r.data);

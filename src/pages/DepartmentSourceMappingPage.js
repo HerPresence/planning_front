@@ -58,7 +58,7 @@ const DEPT_TABLE_COLS = [
   { key: "suggested",      label: "Suggested Master",      required: false, defaultOn: true  },
   { key: "match",          label: "Match",                 required: false, defaultOn: true  },
   { key: "recommendation", label: "Рекомендація",          required: false, defaultOn: true  },
-  { key: "status",         label: "Статус",                required: true,  defaultOn: true  },
+  { key: "status",         label: "Статус / Дія",          required: true,  defaultOn: true  },
   { key: "master",         label: "Master підрозділ",      required: false, defaultOn: true  },
   { key: "master_type",    label: "Тип (master)",          required: false, defaultOn: false },
   { key: "master_parent",  label: "Parent (master)",       required: false, defaultOn: false },
@@ -699,6 +699,30 @@ function StatusBadge({ status, computedStatus, reason }) {
   );
 }
 
+// ── Next Action (frontend-derived, not persisted) ─────────────────────────────
+
+function getNextAction(row) {
+  const st = row.mapping_status || row.status;
+  if (st === "rejected") return null;
+  if (st === "mapped" || st === "auto") {
+    if (row.source_changed) return { code: "review_change", label: "Перевірити зміну", color: "#d97706", bg: "#fef3c7" };
+    return null;
+  }
+  if (row.computed_status === "parent_missing" || row.parent_missing)
+    return { code: "create_parent", label: "Створити parent", color: "#991b1b", bg: "#fee2e2" };
+  if (row.computed_status === "duplicate_warning" || row.risky_duplicate)
+    return { code: "resolve_conflict", label: "Перевірити конфлікт", color: "#c2410c", bg: "#fff7ed" };
+  if (row.recommendation === "AUTO_BIND" && !row.exists_in_master)
+    return { code: "auto_bind", label: "Auto-match", color: "#065f46", bg: "#d1fae5" };
+  if (row.recommendation === "RECOMMEND_BIND" && !row.exists_in_master)
+    return { code: "review_bind", label: "Прив'язати", color: "#1e40af", bg: "#dbeafe" };
+  if (row.ready_to_create || row.computed_status === "ready_to_create")
+    return { code: "create_master", label: "Створити master", color: "#059669", bg: "#ecfdf5" };
+  if (st === "pending")
+    return { code: "manual_bind", label: "Прив'язати", color: "#92400e", bg: "#fef3c7" };
+  return null;
+}
+
 // ── Recommendation ────────────────────────────────────────────────────────────
 
 const RECOMMENDATION_CFG = {
@@ -1162,6 +1186,36 @@ function HelpModal({ onClose }) {
           </table>
         </div>
 
+        <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Рекомендований порядок роботи:</div>
+          {[
+            { n: 1, label: "Перевірити coverage",           hint: "Coverage block вгорі сторінки — ціль ≥90%" },
+            { n: 2, label: "Закрити parent hierarchy",       hint: "Крок 1 у панелі — підрозділи без parent не можна створити" },
+            { n: 3, label: "Розібрати конфлікти",            hint: "Крок 2 — конфлікти назв і дублікати ID" },
+            { n: 4, label: "Запустити auto-match",           hint: "Крок 3 — Авто(id), Smart AUTO, UID-match" },
+            { n: 5, label: "Прив'язати вручну решту",       hint: "Крок 4 — pending після auto-match" },
+            { n: 6, label: "Створити master для нових",      hint: "Крок 5 — готові до створення підрозділи" },
+            { n: 7, label: "Перевірити coverage знову",      hint: "Цільовий показник ≥90% coverage" },
+          ].map(({ n, label, hint }) => (
+            <div key={n} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 5 }}>
+              <span style={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%",
+                             background: "#e0e7ff", color: "#4338ca", fontSize: 10, fontWeight: 800,
+                             display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span>
+              <span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#111827" }}>{label}</span>
+                <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 6 }}>{hint}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: "10px 12px", background: "#eff6ff", border: "1px solid #93c5fd",
+                      borderRadius: 6, fontSize: 11, color: "#1e40af", marginBottom: 12 }}>
+          <strong>Чому важливий mapping:</strong>{" "}
+          Planning використовує department_source_mapping. Якщо mapping відсутній —
+          фільтри region/branch/org не покривають ці рядки у правилах планування.
+        </div>
+
         <div style={{ padding: "10px 12px", background: "#f0fdf4", border: "1px solid #6ee7b7",
                       borderRadius: 6, fontSize: 11, color: "#374151" }}>
           <strong>Правила безпеки:</strong>
@@ -1207,32 +1261,32 @@ function KpiPill({ label, value, color, active, onClick, title }) {
 
 // ── Hierarchy helpers ─────────────────────────────────────────────────────────
 
+const _NT_AUTO = "Тип вузла визначається автоматично. Щоб змінити — змініть батьківський підрозділ або дочірні.";
+
 const NODE_TYPE_CFG = {
-  root:         { label: "Root",         bg: "#f3f4f6", color: "#6b7280" },
-  root_parent:  { label: "Root·Parent",  bg: "#dbeafe", color: "#1e40af" },
-  leaf:         { label: "Leaf",         bg: "#d1fae5", color: "#065f46" },
-  parent_child: { label: "Parent·Child", bg: "#ede9fe", color: "#7c3aed" },
+  root:         { label: "• Самостійний",  bg: "#f3f4f6", color: "#6b7280" },
+  root_parent:  { label: "🌳 Верхній",     bg: "#dbeafe", color: "#1e40af" },
+  leaf:         { label: "📄 Кінцевий",    bg: "#d1fae5", color: "#065f46" },
+  parent_child: { label: "📂 Проміжний",   bg: "#ede9fe", color: "#7c3aed" },
 };
 
 const NODE_TYPE_TITLES = {
-  root:         "Root: немає parent і немає дітей",
-  root_parent:  "Root·Parent: немає parent, але є діти",
-  leaf:         "Leaf: є parent, немає дітей",
-  parent_child: "Parent·Child: є parent і є діти",
+  root:         `Самостійний вузол: немає parent і немає дітей.\n${_NT_AUTO}`,
+  root_parent:  `Верхній вузол: немає parent, але є дочірні.\n${_NT_AUTO}`,
+  leaf:         `Кінцевий підрозділ: є parent, немає дочірніх.\n${_NT_AUTO}`,
+  parent_child: `Проміжний вузол: є parent і є дочірні.\n${_NT_AUTO}`,
 };
 
-function NodeTypeBadge({ nodeType, level }) {
+function NodeTypeBadge({ nodeType }) {
   const cfg   = NODE_TYPE_CFG[nodeType] || { label: "—", bg: "#f3f4f6", color: "#9ca3af" };
-  const title = NODE_TYPE_TITLES[nodeType] || "";
+  const title = NODE_TYPE_TITLES[nodeType] || _NT_AUTO;
   return (
     <span title={title} style={{
       fontSize: 10, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
       background: cfg.bg, color: cfg.color, whiteSpace: "nowrap",
       display: "inline-block", cursor: "help",
     }}>
-      {cfg.label}{level !== undefined && level !== null && (
-        <span style={{ opacity: 0.6, marginLeft: 3, fontWeight: 400 }}>L{level}</span>
-      )}
+      {cfg.label}
     </span>
   );
 }
@@ -2647,6 +2701,8 @@ function buildApiFilters(f) {
     parent_department_name: f.filterParentName   || null,
     source_level:           f.filterSourceLevel !== "" ? Number(f.filterSourceLevel) : null,
     source_node_type:       f.filterSourceType   || null,
+    source_changed:         f.filterSourceChanged === "yes" ? true
+                            : f.filterSourceChanged === "no"  ? false : null,
   };
 }
 
@@ -2724,6 +2780,7 @@ function BulkFillModal({ filters, onClose, onSuccess }) {
         confirm:  true,
       });
       if (res.status === "ok") onSuccess(res);
+      else if (res.status === "warning") setError(res.message || "Жоден рядок не змінено");
       else setError(res.message || "Помилка застосування");
     } catch { setError("Помилка застосування"); }
     finally { setApplying(false); }
@@ -5050,6 +5107,7 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
   const [showNameConflicts,     setShowNameConflicts]     = useState(false);
   const [conflictCountAll,      setConflictCountAll]      = useState(null);
   const [showAdvanced,          setShowAdvanced]          = useState(false);
+  const [showWorkflowPanel,     setShowWorkflowPanel]     = useState(true);
   const [page,                  setPage]                  = useState(1);
   const PAGE_SIZE = 100;
 
@@ -5244,7 +5302,8 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
 
   const handleBulkFillSuccess = (res) => {
     setShowBulkFill(false);
-    setSuccess(`Оновлено: ${res.updated_masters} master-підрозділів, ${res.updated_staging} pending записів.`);
+    const matchedPart = res.rows_matched != null ? ` (знайдено рядків: ${res.rows_matched})` : "";
+    setSuccess(`Оновлено: ${res.updated_masters} master-підрозділів, ${res.updated_staging} pending записів${matchedPart}.`);
     load();
   };
 
@@ -5510,102 +5569,134 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
             ) : null;
           })()}
         </div>
-        {/* Bulk actions */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={handleAutoBind} disabled={autoBinding}
-            title="Авто-прив'язка за точним збігом department_id. Не зачіпає вже прив'язані рядки."
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#eff6ff", border: "1px solid #3b82f6",
-                     borderRadius: 5, cursor: "pointer", color: "#1e40af" }}>
-            {autoBinding ? "…" : "⚡ Авто (id)"}
-          </button>
-          <button onClick={handleBulkBindSuggested} disabled={bulkBindingSugg}
-            title="Smart прив'язка AUTO_BIND рядків (score>=95, без ризикових дублікатів)"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#f5f3ff", border: "1px solid #a78bfa",
-                     borderRadius: 5, cursor: "pointer", color: "#5b21b6" }}>
-            {bulkBindingSugg ? "…" : "🎯 Smart AUTO"}
-          </button>
-          <button onClick={() => setShowBulkCreateParents(true)}
-            title="Масово створити батьківські підрозділи для рядків із статусом 'Немає parent'"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#fff7ed", border: "1px solid #fb923c",
-                     borderRadius: 5, cursor: "pointer", color: "#c2410c" }}>
-            🌳 Parent масово
-          </button>
-          <button onClick={() => setShowUidGroups(true)}
-            title="Знайти source-підрозділи з однаковим UID у різних джерелах і прив'язати їх до одного master"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#faf5ff", border: "1px solid #c084fc",
-                     borderRadius: 5, cursor: "pointer", color: "#7e22ce" }}>
-            🔗 Однаковий UID
-          </button>
-          <button
-            onClick={async () => {
-              setAutoMatchingUid(true);
-              setAutoMatchUidResult(null);
-              try {
-                const res = await autoMatchByUid();
-                setAutoMatchUidResult(res.auto_matched);
-                loadData();
-              } catch { setAutoMatchUidResult(-1); }
-              finally { setAutoMatchingUid(false); }
-            }}
-            disabled={autoMatchingUid}
-            title="Автоматично прив'язати pending-рядки (у т.ч. source_id=9) через normalized UID — якщо вже є mapped рядок з тим самим UID в іншому джерелі"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#f0f9ff", border: "1px solid #7dd3fc",
-                     borderRadius: 5, cursor: autoMatchingUid ? "default" : "pointer",
-                     color: "#0c4a6e", opacity: autoMatchingUid ? 0.6 : 1 }}>
-            {autoMatchingUid ? "…" : "⚡ Auto-match UID"}
-            {autoMatchUidResult !== null && autoMatchUidResult >= 0 &&
-              <span style={{ marginLeft: 6, color: autoMatchUidResult > 0 ? "#16a34a" : "#64748b" }}>
-                ({autoMatchUidResult})
-              </span>}
-            {autoMatchUidResult === -1 && <span style={{ marginLeft: 6, color: "#dc2626" }}>!</span>}
-          </button>
-          <button onClick={() => setShowBulkFill(true)}
-            title="Масово заповнити поле для відфільтрованих pending-рядків"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#f0fdf4", border: "1px solid #6ee7b7",
-                     borderRadius: 5, cursor: "pointer", color: "#065f46" }}>
-            🔗 Заповнити
-          </button>
-          <button onClick={() => setShowBulkCreate(true)}
-            title="Масово створити master-підрозділи для готових pending-рядків"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#fefce8", border: "1px solid #fde047",
-                     borderRadius: 5, cursor: "pointer", color: "#713f12" }}>
-            ➕ Створити master
-          </button>
-          <button onClick={() => setShowNameConflicts(true)}
-            title="Знайти підрозділи з однаковою назвою але різними master — SAME_NAME_DIFFERENT_MASTER"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: conflictCountAll > 0 ? "#fef2f2" : "#f9fafb",
-                     border: `1px solid ${conflictCountAll > 0 ? "#fca5a5" : "#d1d5db"}`,
-                     borderRadius: 5, cursor: "pointer",
-                     color: conflictCountAll > 0 ? "#991b1b" : "#374151" }}>
-            ⚠ Конфлікт назв{conflictCountAll > 0 ? ` (${conflictCountAll})` : ""}
-          </button>
-          <button onClick={() => setShowHelp(true)}
-            title="Довідка — як читати рекомендації"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#f9fafb", border: "1px solid #d1d5db",
-                     borderRadius: 5, cursor: "pointer", color: "#374151" }}>
-            ? Довідка
-          </button>
-          <button onClick={() => setShowTableSettings(true)}
-            title="Налаштування видимості та порядку колонок"
-            style={{ padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                     background: "#f0f9ff", border: "1px solid #bae6fd",
-                     borderRadius: 5, cursor: "pointer", color: "#0369a1" }}>
-            ⚙ Таблиця
-          </button>
-          <button onClick={load} disabled={loading} title="Оновити таблицю"
-            style={{ padding: "5px 10px", fontSize: 13, background: "#f9fafb",
-                     border: "1px solid #d1d5db", borderRadius: 5, cursor: "pointer", color: "#6b7280" }}>
-            {loading ? "…" : "↻"}
-          </button>
+        {/* ── Grouped toolbar ── */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+
+          {/* Group: Автоматизація */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                           letterSpacing: "0.06em", lineHeight: 1 }}>Авто</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={handleAutoBind} disabled={autoBinding}
+                title="Авто-прив'язка за точним збігом department_id. Не зачіпає вже прив'язані рядки."
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#eff6ff", border: "1px solid #3b82f6",
+                         borderRadius: 5, cursor: "pointer", color: "#1e40af" }}>
+                {autoBinding ? "…" : "⚡ Авто (id)"}
+              </button>
+              <button onClick={handleBulkBindSuggested} disabled={bulkBindingSugg}
+                title="Smart прив'язка AUTO_BIND рядків (score>=95, без ризикових дублікатів)"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#f5f3ff", border: "1px solid #a78bfa",
+                         borderRadius: 5, cursor: "pointer", color: "#5b21b6" }}>
+                {bulkBindingSugg ? "…" : "🎯 Smart AUTO"}
+              </button>
+              <button
+                onClick={async () => {
+                  setAutoMatchingUid(true); setAutoMatchUidResult(null);
+                  try { const res = await autoMatchByUid(); setAutoMatchUidResult(res.auto_matched); load(); }
+                  catch { setAutoMatchUidResult(-1); }
+                  finally { setAutoMatchingUid(false); }
+                }}
+                disabled={autoMatchingUid}
+                title="Автоматично прив'язати pending-рядки через normalized UID"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#f0f9ff", border: "1px solid #7dd3fc",
+                         borderRadius: 5, cursor: autoMatchingUid ? "default" : "pointer",
+                         color: "#0c4a6e", opacity: autoMatchingUid ? 0.6 : 1 }}>
+                {autoMatchingUid ? "…" : "⚡ UID-match"}
+                {autoMatchUidResult !== null && autoMatchUidResult >= 0 &&
+                  <span style={{ marginLeft: 5, color: autoMatchUidResult > 0 ? "#16a34a" : "#64748b" }}>({autoMatchUidResult})</span>}
+                {autoMatchUidResult === -1 && <span style={{ marginLeft: 5, color: "#dc2626" }}>!</span>}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ width: 1, background: "#e5e7eb", alignSelf: "stretch", marginTop: 14 }}/>
+
+          {/* Group: Ієрархія */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                           letterSpacing: "0.06em", lineHeight: 1 }}>Ієрархія</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={() => setShowBulkCreateParents(true)}
+                title="Масово створити батьківські підрозділи для рядків із статусом 'Немає parent'"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#fff7ed", border: "1px solid #fb923c",
+                         borderRadius: 5, cursor: "pointer", color: "#c2410c" }}>
+                🌳 Parent масово
+              </button>
+              <button onClick={() => setShowUidGroups(true)}
+                title="Знайти source-підрозділи з однаковим UID у різних джерелах і прив'язати їх до одного master"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#faf5ff", border: "1px solid #c084fc",
+                         borderRadius: 5, cursor: "pointer", color: "#7e22ce" }}>
+                🔗 Однаковий UID
+              </button>
+            </div>
+          </div>
+
+          <div style={{ width: 1, background: "#e5e7eb", alignSelf: "stretch", marginTop: 14 }}/>
+
+          {/* Group: Конфлікти + Обслуговування */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                           letterSpacing: "0.06em", lineHeight: 1 }}>Обробка</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={() => setShowNameConflicts(true)}
+                title="Знайти підрозділи з однаковою назвою але різними master"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: conflictCountAll > 0 ? "#fef2f2" : "#f9fafb",
+                         border: `1px solid ${conflictCountAll > 0 ? "#fca5a5" : "#d1d5db"}`,
+                         borderRadius: 5, cursor: "pointer",
+                         color: conflictCountAll > 0 ? "#991b1b" : "#374151" }}>
+                ⚠ Конфлікти{conflictCountAll > 0 ? ` (${conflictCountAll})` : ""}
+              </button>
+              <button onClick={() => setShowBulkFill(true)}
+                title="Масово заповнити поле для відфільтрованих pending-рядків"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#f0fdf4", border: "1px solid #6ee7b7",
+                         borderRadius: 5, cursor: "pointer", color: "#065f46" }}>
+                🔗 Заповнити
+              </button>
+              <button onClick={() => setShowBulkCreate(true)}
+                title="Масово створити master-підрозділи для готових pending-рядків"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#fefce8", border: "1px solid #fde047",
+                         borderRadius: 5, cursor: "pointer", color: "#713f12" }}>
+                ➕ Створити master
+              </button>
+            </div>
+          </div>
+
+          <div style={{ width: 1, background: "#e5e7eb", alignSelf: "stretch", marginTop: 14 }}/>
+
+          {/* Group: Сервіс */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                           letterSpacing: "0.06em", lineHeight: 1 }}>Сервіс</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={() => setShowHelp(true)}
+                title="Довідка — як читати рекомендації"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#f9fafb", border: "1px solid #d1d5db",
+                         borderRadius: 5, cursor: "pointer", color: "#374151" }}>
+                ? Довідка
+              </button>
+              <button onClick={() => setShowTableSettings(true)}
+                title="Налаштування видимості та порядку колонок"
+                style={{ padding: "4px 10px", fontSize: 12, fontWeight: 600,
+                         background: "#f0f9ff", border: "1px solid #bae6fd",
+                         borderRadius: 5, cursor: "pointer", color: "#0369a1" }}>
+                ⚙ Таблиця
+              </button>
+              <button onClick={load} disabled={loading} title="Оновити таблицю"
+                style={{ padding: "4px 9px", fontSize: 13, background: "#f9fafb",
+                         border: "1px solid #d1d5db", borderRadius: 5, cursor: "pointer", color: "#6b7280" }}>
+                {loading ? "…" : "↻"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -5712,6 +5803,204 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Guided Workflow Panel ── */}
+      {data && (
+        <div style={{ marginBottom: 10, border: "1px solid #e0e7ff", borderRadius: 8,
+                      background: "#fafbff", overflow: "hidden" }}>
+          <div
+            onClick={() => setShowWorkflowPanel(v => !v)}
+            style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px",
+                     cursor: "pointer", userSelect: "none", borderBottom: showWorkflowPanel ? "1px solid #e0e7ff" : "none" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#4338ca" }}>
+              {showWorkflowPanel ? "▲" : "▼"} Що потрібно зробити
+            </span>
+            <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 4 }}>
+              Рекомендований порядок обробки
+            </span>
+            {/* Progress indicator */}
+            {(() => {
+              const totalIssues = (data.parent_missing ?? 0) + (conflictCountAll ?? 0) +
+                                  (data.ready_to_create ?? 0) +
+                                  (data.pending ?? 0) + (data.changed_source ?? 0);
+              const done = (data.mapped ?? 0) + (data.auto_bound ?? 0) + (data.rejected ?? 0);
+              const total = (data.total ?? 0);
+              if (total === 0) return null;
+              const pct = Math.round(done / total * 100);
+              const color = pct >= 90 ? "#10b981" : pct >= 60 ? "#f59e0b" : "#ef4444";
+              return (
+                <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color }}>
+                  {pct}% оброблено ({done}/{total})
+                </span>
+              );
+            })()}
+          </div>
+          {showWorkflowPanel && (
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "10px 12px" }}>
+
+              {/* Step 1: Parent hierarchy */}
+              {(() => {
+                const cnt = data.parent_missing ?? 0;
+                return (
+                  <div style={{ flex: "0 0 auto", minWidth: 180, padding: "10px 12px", borderRadius: 7,
+                                border: `1px solid ${cnt > 0 ? "#fca5a5" : "#d1fae5"}`,
+                                background: cnt > 0 ? "#fef2f2" : "#f0fdf4" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                                  letterSpacing: "0.05em", marginBottom: 4 }}>Крок 1 · Ієрархія</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: cnt > 0 ? "#dc2626" : "#059669" }}>{cnt}</span>
+                      <span style={{ fontSize: 11, color: cnt > 0 ? "#991b1b" : "#065f46", fontWeight: 600 }}>
+                        {cnt > 0 ? "без parent" : "Parent ок"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, lineHeight: 1.4 }}>
+                      Спочатку закрийте відсутні parent, інакше child не можна створити.
+                    </div>
+                    {cnt > 0 && (
+                      <button onClick={() => setShowBulkCreateParents(true)}
+                        style={{ width: "100%", padding: "4px 0", fontSize: 11, fontWeight: 600,
+                                 background: "#fee2e2", border: "1px solid #fca5a5",
+                                 borderRadius: 5, cursor: "pointer", color: "#991b1b" }}>
+                        🌳 Опрацювати parent
+                      </button>
+                    )}
+                    {cnt === 0 && <div style={{ fontSize: 10, color: "#059669" }}>✓ Виконано</div>}
+                  </div>
+                );
+              })()}
+
+              {/* Step 2: Conflicts */}
+              {(() => {
+                const cnt = (conflictCountAll ?? 0) + (data.duplicate_warning ?? 0);
+                return (
+                  <div style={{ flex: "0 0 auto", minWidth: 180, padding: "10px 12px", borderRadius: 7,
+                                border: `1px solid ${cnt > 0 ? "#fca5a5" : "#d1fae5"}`,
+                                background: cnt > 0 ? "#fff7ed" : "#f0fdf4" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                                  letterSpacing: "0.05em", marginBottom: 4 }}>Крок 2 · Конфлікти</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: cnt > 0 ? "#c2410c" : "#059669" }}>{cnt}</span>
+                      <span style={{ fontSize: 11, color: cnt > 0 ? "#c2410c" : "#065f46", fontWeight: 600 }}>
+                        {cnt > 0 ? "конфліктів" : "Конфліктів немає"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, lineHeight: 1.4 }}>
+                      Конфлікти назв і дублікати ID потрібно розібрати вручну.
+                    </div>
+                    {cnt > 0 && (
+                      <button onClick={() => setShowNameConflicts(true)}
+                        style={{ width: "100%", padding: "4px 0", fontSize: 11, fontWeight: 600,
+                                 background: "#fff7ed", border: "1px solid #fdba74",
+                                 borderRadius: 5, cursor: "pointer", color: "#c2410c" }}>
+                        ⚠ Розібрати конфлікти
+                      </button>
+                    )}
+                    {cnt === 0 && <div style={{ fontSize: 10, color: "#059669" }}>✓ Виконано</div>}
+                  </div>
+                );
+              })()}
+
+              {/* Step 3: Auto-match */}
+              {(() => {
+                const autoRows = (data.rows || []).filter(r =>
+                  r.recommendation === "AUTO_BIND" && !r.exists_in_master
+                ).length;
+                return (
+                  <div style={{ flex: "0 0 auto", minWidth: 180, padding: "10px 12px", borderRadius: 7,
+                                border: "1px solid #c4b5fd", background: "#faf5ff" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                                  letterSpacing: "0.05em", marginBottom: 4 }}>Крок 3 · Auto-match</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: "#7c3aed" }}>{autoRows}</span>
+                      <span style={{ fontSize: 11, color: "#7c3aed", fontWeight: 600 }}>на сторінці</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, lineHeight: 1.4 }}>
+                      Запустіть auto-match — безпечно прив'яже підрозділи за ID і UID.
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={handleAutoBind} disabled={autoBinding}
+                        style={{ flex: 1, padding: "4px 0", fontSize: 10, fontWeight: 600,
+                                 background: "#eff6ff", border: "1px solid #3b82f6",
+                                 borderRadius: 5, cursor: "pointer", color: "#1e40af" }}>
+                        {autoBinding ? "…" : "⚡ Авто (id)"}
+                      </button>
+                      <button onClick={handleBulkBindSuggested} disabled={bulkBindingSugg}
+                        style={{ flex: 1, padding: "4px 0", fontSize: 10, fontWeight: 600,
+                                 background: "#f5f3ff", border: "1px solid #a78bfa",
+                                 borderRadius: 5, cursor: "pointer", color: "#5b21b6" }}>
+                        {bulkBindingSugg ? "…" : "🎯 Smart"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Step 4: Manual mapping */}
+              {(() => {
+                const cnt = data.pending ?? 0;
+                return (
+                  <div style={{ flex: "0 0 auto", minWidth: 180, padding: "10px 12px", borderRadius: 7,
+                                border: `1px solid ${cnt > 0 ? "#fcd34d" : "#d1fae5"}`,
+                                background: cnt > 0 ? "#fffbeb" : "#f0fdf4" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                                  letterSpacing: "0.05em", marginBottom: 4 }}>Крок 4 · Ручне</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: cnt > 0 ? "#92400e" : "#059669" }}>{cnt}</span>
+                      <span style={{ fontSize: 11, color: cnt > 0 ? "#92400e" : "#065f46", fontWeight: 600 }}>
+                        {cnt > 0 ? "очікують" : "Всі оброблені"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, lineHeight: 1.4 }}>
+                      Після auto-match прив'яжіть решту вручну або відхиліть.
+                    </div>
+                    {cnt > 0 && (
+                      <button onClick={() => { setFilterStatus("pending"); setPage(1); }}
+                        style={{ width: "100%", padding: "4px 0", fontSize: 11, fontWeight: 600,
+                                 background: "#fef3c7", border: "1px solid #fcd34d",
+                                 borderRadius: 5, cursor: "pointer", color: "#92400e" }}>
+                        🔍 Показати pending
+                      </button>
+                    )}
+                    {cnt === 0 && <div style={{ fontSize: 10, color: "#059669" }}>✓ Виконано</div>}
+                  </div>
+                );
+              })()}
+
+              {/* Step 5: Create master */}
+              {(() => {
+                const cnt = data.ready_to_create ?? 0;
+                return (
+                  <div style={{ flex: "0 0 auto", minWidth: 180, padding: "10px 12px", borderRadius: 7,
+                                border: `1px solid ${cnt > 0 ? "#6ee7b7" : "#d1fae5"}`,
+                                background: cnt > 0 ? "#ecfdf5" : "#f0fdf4" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase",
+                                  letterSpacing: "0.05em", marginBottom: 4 }}>Крок 5 · Створити</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, color: cnt > 0 ? "#059669" : "#9ca3af" }}>{cnt}</span>
+                      <span style={{ fontSize: 11, color: cnt > 0 ? "#065f46" : "#9ca3af", fontWeight: 600 }}>
+                        {cnt > 0 ? "готові" : "Немає"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 8, lineHeight: 1.4 }}>
+                      Підрозділи готові до створення нових master-записів.
+                    </div>
+                    {cnt > 0 && (
+                      <button onClick={() => setShowBulkCreate(true)}
+                        style={{ width: "100%", padding: "4px 0", fontSize: 11, fontWeight: 600,
+                                 background: "#d1fae5", border: "1px solid #6ee7b7",
+                                 borderRadius: 5, cursor: "pointer", color: "#065f46" }}>
+                        ➕ Створити master
+                      </button>
+                    )}
+                    {cnt === 0 && <div style={{ fontSize: 10, color: "#9ca3af" }}>Немає готових</div>}
+                  </div>
+                );
+              })()}
+
+            </div>
+          )}
         </div>
       )}
 
@@ -5834,11 +6123,11 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
             <div style={lblS}>Ієрархія структури</div>
             <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
               {[
-                { val: "",            label: "Всі",                  bg: "#fff",    color: "#374151" },
-                { val: "root",        label: "Root підрозділ",       bg: "#f3f4f6", color: "#6b7280" },
-                { val: "root_parent", label: "Батьківський вузол",   bg: "#dbeafe", color: "#1e40af" },
-                { val: "leaf",        label: "Кінцевий підрозділ",   bg: "#d1fae5", color: "#065f46" },
-                { val: "parent_child",label: "Має дочірні",          bg: "#ede9fe", color: "#7c3aed" },
+                { val: "",            label: "Всі",                   bg: "#fff",    color: "#374151" },
+                { val: "root",        label: "• Самостійний",        bg: "#f3f4f6", color: "#6b7280" },
+                { val: "root_parent", label: "🌳 Верхній вузол",     bg: "#dbeafe", color: "#1e40af" },
+                { val: "leaf",        label: "📄 Кінцевий",          bg: "#d1fae5", color: "#065f46" },
+                { val: "parent_child",label: "📂 Проміжний",         bg: "#ede9fe", color: "#7c3aed" },
               ].map(opt => (
                 <button key={opt.val} onClick={() => { setFilterSourceType(opt.val); setPage(1); }}
                   style={{ padding: "3px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
@@ -6005,7 +6294,7 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
         if (filterMode !== "all") chips.push({ label: "Dataset", value: filterMode === "fact_only" ? "У продажах" : filterMode === "fact_unmapped" ? "Незамаплені·продажі" : "Незамаплені·всі", onClear: () => { setFilterMode("all"); setPage(1); } });
         if (filterStatus)       chips.push({ label: "Статус",  value: { pending: "Очікує", mapped: "Прив'язано", auto: "Авто", rejected: "Відхилено" }[filterStatus] || filterStatus, onClear: () => { setFilterStatus(""); setPage(1); } });
         if (filterComputedStatus) chips.push({ label: "Статус", value: { ready_to_create: "Можна створити", parent_missing: "Немає parent", duplicate_warning: "Дублікат ID" }[filterComputedStatus] || filterComputedStatus, onClear: () => { setFilterComputedStatus(""); setPage(1); } });
-        if (filterSourceType)   chips.push({ label: "Ієрархія", value: { root: "Root підрозділ", root_parent: "Батьківський вузол", leaf: "Кінцевий підрозділ", parent_child: "Має дочірні" }[filterSourceType] || filterSourceType, onClear: () => { setFilterSourceType(""); setPage(1); } });
+        if (filterSourceType)   chips.push({ label: "Ієрархія", value: { root: "Самостійний", root_parent: "Верхній вузол", leaf: "Кінцевий", parent_child: "Проміжний" }[filterSourceType] || filterSourceType, onClear: () => { setFilterSourceType(""); setPage(1); } });
         if (filterHasParent)    chips.push({ label: "Parent", value: filterHasParent === "with" ? "Є батьківський" : "Немає батьківського",  onClear: () => { setFilterHasParent(""); setPage(1); } });
         if (filterOrg)          chips.push({ label: "Орг",    value: filterOrg,    onClear: () => { setFilterOrg(""); setPage(1); } });
         if (filterBranch)       chips.push({ label: "Філія",  value: filterBranch, onClear: () => { setFilterBranch(""); setPage(1); } });
@@ -6093,7 +6382,7 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
                   const activeFilters = [
                     filterStatus && `Статус: ${{ pending: "Очікує", mapped: "Прив'язано", auto: "Авто", rejected: "Відхилено" }[filterStatus] || filterStatus}`,
                     filterComputedStatus && `Статус: ${{ ready_to_create: "Можна створити", parent_missing: "Немає parent", duplicate_warning: "Дублікат ID" }[filterComputedStatus]}`,
-                    filterSourceType && `Ієрархія: ${{ root: "Root підрозділ", root_parent: "Батьківський вузол", leaf: "Кінцевий підрозділ", parent_child: "Має дочірні" }[filterSourceType]}`,
+                    filterSourceType && `Ієрархія: ${{ root: "Самостійний", root_parent: "Верхній вузол", leaf: "Кінцевий", parent_child: "Проміжний" }[filterSourceType]}`,
                     filterHasParent && `Parent: ${filterHasParent === "with" ? "Є батьківський" : "Немає батьківського"}`,
                     filterOrg && `Орг: ${filterOrg}`,
                     filterBranch && `Філія: ${filterBranch}`,
@@ -6280,6 +6569,27 @@ export default function DepartmentSourceMappingPage({ initialSourceId = "", init
                   case "status": return (
                     <td key={key} style={tdStyle}>
                       <StatusBadge status={st} computedStatus={row.computed_status} reason={row.status_reason} />
+                      {row.source_changed && (st === "mapped" || st === "auto") && (
+                        <div style={{ marginTop: 2 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px",
+                                         borderRadius: 3, background: "#fef3c7", color: "#d97706",
+                                         whiteSpace: "nowrap" }}>↻ Source змінено</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const na = getNextAction(row);
+                        if (!na) return null;
+                        if (na.code === "review_change") return null;
+                        return (
+                          <div style={{ marginTop: 3 }}>
+                            <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3,
+                                           background: na.bg, color: na.color,
+                                           fontWeight: 600, whiteSpace: "nowrap" }}>
+                              → {na.label}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
                   );
                   case "master": return (

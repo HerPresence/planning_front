@@ -44,6 +44,7 @@ export const deleteEffect = (effectId) =>
 // ── Fact Plan ─────────────────────────────────────────────────────────────────
 export const getFactPlan           = (params = {}) => axios.get(`${BASE}/fact-plan`, { params }).then(r => r.data);
 export const getFactPlanAggregated = (params = {}) => axios.get(`${BASE}/fact-plan/aggregated`, { params }).then(r => r.data);
+export const getFactPlanGrouped    = (params = {}) => axios.get(`${BASE}/fact-plan/grouped`, { params }).then(r => r.data);
 
 // ── Dropdown options — plan table ─────────────────────────────────────────────
 export const getPlanDeptOptions = (scenarioId, versionId, search = "", limit = 50) =>
@@ -69,6 +70,8 @@ export const getPlanningReadiness     = (params = {}) => axios.get(`${BASE}/plan
 export const getPlansOverview         = ()            => axios.get(`${BASE}/plans-overview`).then(r => r.data);
 export const quickMapDepartment       = (body)        => axios.post(`${BASE}/quick-map-department`, body).then(r => r.data);
 export const deleteVersion            = (versionId)   => axios.delete(`${BASE}/versions/${versionId}`).then(r => r.data);
+export const getReadinessProblems     = (params = {}) => axios.get(`${BASE}/readiness-problems`, { params }).then(r => r.data);
+export const getBrandMappingCoverage  = (params = {}) => axios.get(`${BASE}/brand-mapping-coverage`, { params }).then(r => r.data);
 
 // ── Generation ────────────────────────────────────────────────────────────────
 export const generateFirstDraft  = (body)          => axios.post(`${BASE}/generate-first-draft`, body).then(r => r.data);

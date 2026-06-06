@@ -348,3 +348,79 @@
 .th-group-kg   { background: #f0fdf4 !important; color: #15803d; }
 .th-group-dal  { background: #fefce8 !important; color: #92400e; }
 .th-group-price { background: var(--gray-100) !important; }
+
+/* ── Grouping toggle panel ───────────────────────────────────────────────── */
+.group-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-weight: 400;
+  user-select: none;
+}
+.group-toggle-label.group-toggle-active {
+  color: var(--brand);
+  font-weight: 600;
+}
+.group-toggle-reset {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.group-toggle-reset:hover {
+  background: var(--gray-100);
+}
+
+/* ── Grouped table rows ──────────────────────────────────────────────────── */
+.grouped-table tbody tr.grouped-row:hover { background: var(--gray-50); }
+
+.grouped-table tr.grouped-level-0 {
+  background: #f8fafc;
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+}
+.grouped-table tr.grouped-level-1 {
+  font-weight: 400;
+}
+.grouped-table tr.grouped-level-2 {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.grouped-table tr.grouped-level-3,
+.grouped-table tr.grouped-level-4 {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.grouped-label-cell {
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.grouped-expand-icon {
+  display: inline-block;
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-right: 5px;
+  width: 10px;
+}
+.grouped-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.grouped-plan-cell {
+  font-weight: 600;
+}
+.grouped-table tr.grouped-summary-row {
+  background: var(--gray-100);
+  font-weight: 700;
+  border-top: 2px solid var(--border);
+}

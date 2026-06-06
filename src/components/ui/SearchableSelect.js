@@ -16,7 +16,8 @@ export default function SearchableSelect({
   const selected = value
     ? options.find((o) => String(getOptionValue(o)) === String(value))
     : null;
-  const displayText = selected ? getOptionLabel(selected) : "";
+  // Show stored value as fallback when no option matches (e.g. imported data with name mismatch)
+  const displayText = selected ? getOptionLabel(selected) : ((!open && value) ? String(value) : "");
 
   const filtered = query.trim()
     ? options.filter((o) => {

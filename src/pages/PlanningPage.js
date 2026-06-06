@@ -1,15 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "../styles/planning.css";
+import DepartmentEditModal from "../components/DepartmentEditModal";
+import CopyCellButton from "../components/ui/CopyCellButton";
 import {
   getScenarios, createScenario,
   getVersions, createVersion, lockVersion,
   getRules, createRule, updateRule, deleteRule, copyRule,
   createEffect, updateEffect, deleteEffect,
-  getFactPlan, generateFirstDraft, getGenerationLog,
+  getFactPlan, getFactPlanGrouped, generateFirstDraft, getGenerationLog,
   getPlanDeptOptions, getPlanPGOptions, getDimOptions,
   getDeptMappingCoverage, getPlanningReadiness, getPlansOverview, deleteVersion, quickMapDepartment,
+  getReadinessProblems, getBrandMappingCoverage,
 } from "../api/planningApi";
 import { getMasterDepartments, duplicateCheckDept, autoMatchByUid } from "../api/departmentSourceMappingApi";
+import { getMasterBrands, bindBrand, createAndBindBrand, getSimilarBrands } from "../api/brandSourceMappingApi";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 const fmt    = (n, dec=2) => n==null?"—":Number(n).toLocaleString("uk-UA",{minimumFractionDigits:dec,maximumFractionDigits:dec});
@@ -670,6 +674,8 @@ export default function PlanningPage({ setActivePage }) {
   const [branchFilter,setBranchFilter]=useState(""); const [branchDebounced,setBranchDebounced]=useState("");
   const deptTimer=useRef(null); const pgTimer=useRef(null); const regionTimer=useRef(null);
   const orgTimer=useRef(null); const branchTimer=useRef(null);
+  const [groupBy,setGroupBy]=useState([]); const [groupedData,setGroupedData]=useState(null); const [groupedLoading,setGroupedLoading]=useState(false);
+  const [expandedGroups,setExpandedGroups]=useState(new Set());
 
   // ── Planning Readiness ───────────────────────────────────────────────────────
   const [readiness,setReadiness]=useState(null); const [readinessLoading,setReadinessLoading]=useState(false);
@@ -689,6 +695,14 @@ export default function PlanningPage({ setActivePage }) {
   // ── Dept Mapping Coverage ────────────────────────────────────────────────────
   const [deptCoverage,setDeptCoverage]=useState(null); const [deptCoverLoading,setDeptCoverLoading]=useState(false);
   const [uidAutoMatching,setUidAutoMatching]=useState(false); const [uidAutoMatchResult,setUidAutoMatchResult]=useState(null);
+
+  // ── Brand Mapping Coverage ───────────────────────────────────────────────────
+  const [brandCoverage,setBrandCoverage]=useState(null); const [brandCoverLoading,setBrandCoverLoading]=useState(false);
+  const [mapBrandRow,setMapBrandRow]=useState(null);
+  const [brandMapToast,setBrandMapToast]=useState(null);
+
+  // ── Readiness Problem Modal ──────────────────────────────────────────────────
+  const [problemModal,setProblemModal]=useState(null); // { type: string } | null
 
   // ── Gen Log ─────────────────────────────────────────────────────────────────
   const [genLog,setGenLog]=useState(null); const [genLogLoading,setGenLogLoading]=useState(false); const [expandedGen,setExpandedGen]=useState(null);
@@ -713,6 +727,8 @@ export default function PlanningPage({ setActivePage }) {
   useEffect(()=>{if(selectedScenario&&selectedVersion)loadReadiness();},[selectedScenario,selectedVersion]); // eslint-disable-line
   const loadDeptCoverage=useCallback(()=>{setDeptCoverLoading(true);getDeptMappingCoverage().then(setDeptCoverage).catch(()=>{}).finally(()=>setDeptCoverLoading(false));},[]);
   useEffect(()=>{if(selectedScenario&&selectedVersion)loadDeptCoverage();},[selectedScenario,selectedVersion]); // eslint-disable-line
+  const loadBrandCoverage=useCallback(()=>{setBrandCoverLoading(true);getBrandMappingCoverage().then(setBrandCoverage).catch(()=>{}).finally(()=>setBrandCoverLoading(false));},[]);
+  useEffect(()=>{if(selectedScenario&&selectedVersion)loadBrandCoverage();},[selectedScenario,selectedVersion]); // eslint-disable-line
 
   // Plans Overview — load on mount, auto-select if only one version
   const loadPlansOverview=useCallback(()=>{
@@ -784,6 +800,47 @@ export default function PlanningPage({ setActivePage }) {
   const onRegionChange=val=>{setRegionFilter(val);clearTimeout(regionTimer.current);regionTimer.current=setTimeout(()=>{setRegionDebounced(val);setPlanPage(1)},400)};
   const onOrgChange=val=>{setOrgFilter(val);clearTimeout(orgTimer.current);orgTimer.current=setTimeout(()=>{setOrgDebounced(val);setPlanPage(1)},400)};
   const onBranchChange=val=>{setBranchFilter(val);clearTimeout(branchTimer.current);branchTimer.current=setTimeout(()=>{setBranchDebounced(val);setPlanPage(1)},400)};
+
+  // ── Grouped plan load ─────────────────────────────────────────────────────
+  const loadGroupedPlan=useCallback(()=>{
+    if(!selectedScenario||!selectedVersion||groupBy.length===0)return;
+    setGroupedLoading(true);
+    const params={scenario_id:selectedScenario.scenario_id,version_id:selectedVersion.version_id,group_by:groupBy.join(",")};
+    if(periodFrom)params.period_from=periodFrom; if(periodTo)params.period_to=periodTo;
+    if(effectiveDeptName)params.department_name=effectiveDeptName; if(effectiveDeptUid)params.department_uid=effectiveDeptUid;
+    if(effectivePgName)params.product_group_name=effectivePgName;   if(effectivePgUid)params.product_group_uid=effectivePgUid;
+    if(regionDebounced)params.region=regionDebounced;
+    if(orgDebounced)params.organization=orgDebounced;
+    if(branchDebounced)params.branch=branchDebounced;
+    getFactPlanGrouped(params).then(d=>{setGroupedData(d);setExpandedGroups(new Set());}).catch(e=>{console.error("[grouped] API error:",e?.response?.status,e?.response?.data||e?.message);}).finally(()=>setGroupedLoading(false));
+  },[selectedScenario,selectedVersion,groupBy,periodFrom,periodTo,effectiveDeptName,effectiveDeptUid,effectivePgName,effectivePgUid,regionDebounced,orgDebounced,branchDebounced]); // eslint-disable-line
+  useEffect(()=>{if(groupBy.length>0)loadGroupedPlan();else setGroupedData(null);},[groupBy,selectedScenario,selectedVersion,periodFrom,periodTo,deptSelected,pgSelected,deptUidDebounced,pgUidDebounced,regionDebounced,orgDebounced,branchDebounced]); // eslint-disable-line
+
+  // toggleGroupDim preserves user-selected order (append/remove)
+  const toggleGroupDim=dim=>setGroupBy(prev=>prev.includes(dim)?prev.filter(d=>d!==dim):[...prev,dim]);
+  const toggleGroupRow=key=>setExpandedGroups(prev=>{const n=new Set(prev);n.has(key)?n.delete(key):n.add(key);return n;});
+
+  // Memoised: which group keys have children
+  const groupChildKeys=useMemo(()=>{
+    if(!groupedData?.rows)return new Set();
+    return new Set(groupedData.rows.filter(r=>r.parent_key!=null).map(r=>r.parent_key));
+  },[groupedData]);
+
+  // Memoised: flat visible rows for current expand state
+  const visibleGroupedRows=useMemo(()=>{
+    if(!groupedData?.rows)return[];
+    const byKey=Object.fromEntries(groupedData.rows.map(r=>[r.group_key,r]));
+    return groupedData.rows.filter(row=>{
+      if(row.level===0)return true;
+      let pk=row.parent_key;
+      while(pk){
+        if(!expandedGroups.has(pk))return false;
+        const p=byKey[pk];
+        pk=p?p.parent_key:null;
+      }
+      return true;
+    });
+  },[groupedData,expandedGroups]);
 
   // ── Handlers: Scenario/Version ────────────────────────────────────────────
   const handleCreateScenario=async()=>{
@@ -923,6 +980,42 @@ export default function PlanningPage({ setActivePage }) {
         ✓ {mapToast}
         <button onClick={()=>setMapToast(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.7)',cursor:'pointer',fontSize:16}}>✕</button>
       </div>)}
+      {/* Brand map toast */}
+      {brandMapToast&&(<div style={{position:'fixed',bottom:24,right:24,zIndex:3000,padding:'10px 20px',background:'#065f46',color:'#fff',borderRadius:8,fontWeight:600,fontSize:13,boxShadow:'0 4px 20px rgba(0,0,0,0.25)',display:'flex',alignItems:'center',gap:10}}>
+        ✓ {brandMapToast}
+        <button onClick={()=>setBrandMapToast(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.7)',cursor:'pointer',fontSize:16}}>✕</button>
+      </div>)}
+      {/* Brand mapping modal */}
+      {mapBrandRow&&(<QuickMapBrandModal
+        row={mapBrandRow}
+        beforeCoverage={brandCoverage}
+        onClose={()=>setMapBrandRow(null)}
+        onMapped={(res)=>{
+          setMapBrandRow(null);
+          if(brandCoverage){
+            setBrandCoverage(prev=>prev?({...prev,
+              unmapped_brands_list:(prev.unmapped_brands_list||[]).filter(b=>b.brand_uid!==mapBrandRow.brand_uid),
+              unmapped_brands:Math.max(0,(prev.unmapped_brands||0)-1),
+              mapped_brands:(prev.mapped_brands||0)+1,
+            }):prev);
+          }
+          setBrandMapToast('✓ Бренд прив\'язано · Coverage оновлено');
+          setTimeout(()=>setBrandMapToast(null),5000);
+          if(res.afterCoverage) setBrandCoverage(res.afterCoverage);
+          else { loadBrandCoverage(); loadReadiness(); }
+        }}
+      />)}
+
+      {/* Readiness Problem Modal */}
+      {problemModal&&(
+        <ReadinessProblemModal
+          problemType={problemModal.type}
+          onClose={()=>setProblemModal(null)}
+          setActivePage={setActivePage}
+          onRefreshReadiness={()=>{ loadReadiness(); loadDeptCoverage(); }}
+        />
+      )}
+
       {/* Inline dept mapping modal */}
       {mapDeptRow&&(<QuickMapDeptModal
         row={mapDeptRow}
@@ -1221,24 +1314,62 @@ export default function PlanningPage({ setActivePage }) {
             <div>
               {/* Main KPI */}
               <div style={{display:"flex",gap:16,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
-                <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"10px 20px",background:readiness.planning_ready_pct>=95?"#d1fae5":readiness.planning_ready_pct>=70?"#fef3c7":"#fee2e2",borderRadius:"var(--radius-md)",border:"1px solid var(--border)"}}>
-                  <div style={{fontSize:28,fontWeight:800,color:readiness.planning_ready_pct>=95?"#065f46":readiness.planning_ready_pct>=70?"#92400e":"#991b1b"}}>{readiness.planning_ready_pct??0}%</div>
-                  <div style={{fontSize:11,color:"var(--text-muted)",fontWeight:600}}>Planning Ready</div>
-                </div>
+                {(()=>{
+                  const pct  = readiness.planning_ready_pct??0;
+                  const all  = (readiness.blockers||[]).length === 0;
+                  const bg   = all?"#d1fae5":pct>=70?"#fef3c7":"#fee2e2";
+                  const clr  = all?"#065f46":pct>=70?"#92400e":"#991b1b";
+                  const top  = readiness.ready_count??"-";
+                  const tot  = readiness.total_count??6;
+                  const blk  = (readiness.blockers||[]);
+                  return (
+                    <div title="Planning Ready = середнє покриття компонентів. Статус готовності блокується, якщо хоча б один критичний компонент < 100%."
+                      style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"10px 20px",
+                        background:bg,borderRadius:"var(--radius-md)",border:"1px solid var(--border)",
+                        minWidth:120,cursor:"help"}}>
+                      <div style={{fontSize:28,fontWeight:800,color:clr}}>{pct}%</div>
+                      <div style={{fontSize:11,color:"var(--text-muted)",fontWeight:600,marginBottom:4}}>Planning Ready</div>
+                      <div style={{fontSize:10,color:clr,fontWeight:500}}>{top} з {tot} готові</div>
+                      {blk.length>0&&(
+                        <div style={{marginTop:4,fontSize:10,color:clr,fontWeight:700,textAlign:"center"}}>
+                          {blk.slice(0,2).map(b=>(
+                            <div key={b.label}>⚠ {b.label} {b.pct}%</div>
+                          ))}
+                          {blk.length>2&&<div style={{color:"var(--text-muted)"}}>+{blk.length-2} ще</div>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8,flex:1}}>
                   {[
-                    {label:"Dept mapping",val:readiness.mapped_department_pct,warn:readiness.mapped_department_pct<100},
-                    {label:"Brand mapping",val:readiness.mapped_brand_pct,warn:readiness.mapped_brand_pct<80},
-                    {label:"Регіон",val:readiness.region_pct,warn:readiness.region_pct<90},
-                    {label:"Філія",val:readiness.branch_pct,warn:readiness.branch_pct<90},
-                    {label:"Організація",val:readiness.org_pct,warn:readiness.org_pct<90},
-                    {label:"Холдинг",val:readiness.holding_pct,warn:readiness.holding_pct<90},
-                  ].map(({label,val,warn})=>(
-                    <div key={label} style={{padding:"6px 10px",background:"var(--gray-50)",border:`1px solid ${warn&&val<90?"#fca5a5":"var(--border)"}`,borderRadius:"var(--radius-md)"}}>
-                      <div style={{fontSize:10,color:"var(--text-muted)",fontWeight:600,marginBottom:1}}>{label}</div>
-                      <div style={{fontSize:15,fontWeight:700,color:val>=95?"#065f46":val>=70?"#92400e":"#991b1b"}}>{val??0}%</div>
-                    </div>
-                  ))}
+                    {label:"Dept mapping",val:readiness.mapped_department_pct,warn:readiness.mapped_department_pct<100,type:"dept_mapping"},
+                    {label:"Brand mapping",val:readiness.mapped_brand_pct,warn:readiness.mapped_brand_pct<80,type:"brand_mapping"},
+                    {label:"Регіон",val:readiness.region_pct,warn:readiness.region_pct<90,type:"missing_region"},
+                    {label:"Філія",val:readiness.branch_pct,warn:readiness.branch_pct<90,type:"missing_branch"},
+                    {label:"Організація",val:readiness.org_pct,warn:readiness.org_pct<90,type:"missing_organization"},
+                    {label:"Холдинг",val:readiness.holding_pct,warn:readiness.holding_pct<90,type:"missing_holding"},
+                  ].map(({label,val,warn,type})=>{
+                    const clickable = val < 100;
+                    return (
+                      <div key={label}
+                        onClick={clickable ? ()=>setProblemModal({type}) : undefined}
+                        title={clickable ? `Клікніть щоб переглянути проблемні рядки (${100-val}% without ${label})` : undefined}
+                        style={{padding:"6px 10px",background:"var(--gray-50)",
+                          border:`1px solid ${warn&&val<90?"#fca5a5":"var(--border)"}`,
+                          borderRadius:"var(--radius-md)",
+                          cursor:clickable?"pointer":"default",
+                          transition:"background .15s",
+                          position:"relative",
+                        }}
+                        onMouseEnter={e=>{if(clickable)e.currentTarget.style.background="#eff6ff";}}
+                        onMouseLeave={e=>{e.currentTarget.style.background="var(--gray-50)";}}>
+                        <div style={{fontSize:10,color:"var(--text-muted)",fontWeight:600,marginBottom:1}}>{label}</div>
+                        <div style={{fontSize:15,fontWeight:700,color:val>=95?"#065f46":val>=70?"#92400e":"#991b1b"}}>{val??0}%</div>
+                        {clickable&&<div style={{position:"absolute",top:4,right:6,fontSize:9,color:"#3b82f6"}}>↗</div>}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               {/* Warnings */}
@@ -1355,6 +1486,89 @@ export default function PlanningPage({ setActivePage }) {
           )}
           {!deptCoverage&&!deptCoverLoading&&(
             <div className="note" style={{margin:0}}>Натисніть "Оновити" щоб перевірити покриття маппінгу.</div>
+          )}
+        </div>
+      )}
+
+      {/* ══ BLOCK 2.6 — Brand Mapping Coverage ════════════════════════════════ */}
+      {selectedScenario&&selectedVersion&&(
+        <div className="content-card">
+          <div className="card-top">
+            <div className="card-title-block">
+              <h2>Покриття відповідності брендів</h2>
+              <p>Перевірка наявності маппінгу для товарних груп/брендів із fact_turnover</p>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button className="btn btn-secondary btn-sm" onClick={loadBrandCoverage} disabled={brandCoverLoading}>
+                {brandCoverLoading?"…":"↻ Оновити"}
+              </button>
+              {setActivePage&&(
+                <button className="btn btn-secondary btn-sm" onClick={()=>setActivePage("brandSourceMapping",{})}>
+                  Відкрити відповідність брендів →
+                </button>
+              )}
+            </div>
+          </div>
+          {brandCoverage&&(
+            <div>
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
+                {[
+                  {label:"Fact rows",value:(brandCoverage.total_fact_rows||0).toLocaleString("uk-UA"),color:"#374151"},
+                  {label:"Mapped brand",value:(brandCoverage.mapped_brands||0).toLocaleString("uk-UA"),color:"#065f46"},
+                  {label:"Unmapped brand",value:(brandCoverage.unmapped_brands||0).toLocaleString("uk-UA"),color:(brandCoverage.unmapped_brands||0)>0?"#b91c1c":"#374151"},
+                  {label:"Coverage %",value:`${brandCoverage.coverage_pct??0}%`,color:(brandCoverage.coverage_pct??0)>=95?"#065f46":(brandCoverage.coverage_pct??0)>=70?"#92400e":"#b91c1c"},
+                  {label:"Unique brand у fact",value:(brandCoverage.unique_fact_brands||0).toLocaleString("uk-UA"),color:"#374151"},
+                  {label:"Sales VAT unmapped",value:fmt(brandCoverage.unmapped_sales_vat),color:(brandCoverage.unmapped_sales_vat||0)>0?"#b91c1c":"#374151"},
+                ].map(({label,value,color})=>(
+                  <div key={label} style={{padding:"8px 14px",background:"var(--gray-50)",border:"1px solid var(--border)",borderRadius:"var(--radius-md)",minWidth:120}}>
+                    <div style={{fontSize:10,color:"var(--text-muted)",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:2}}>{label}</div>
+                    <div style={{fontSize:16,fontWeight:700,color}}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              {brandCoverage.explanation&&(brandCoverage.coverage_pct??100)<100&&(
+                <div className="note" style={{margin:"0 0 10px",color:"#92400e",background:"#fef3c7",borderColor:"#fcd34d"}}>
+                  {brandCoverage.explanation}
+                </div>
+              )}
+              {brandCoverage.unmapped_brands_list?.length>0&&(
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,marginBottom:6,color:"var(--danger)"}}>
+                    Unmapped бренди/товарні групи у fact_turnover ({brandCoverage.unmapped_brands_list.length})
+                    {setActivePage&&(
+                      <button className="btn btn-secondary btn-sm" style={{marginLeft:10,fontSize:11}}
+                        onClick={()=>setActivePage("brandSourceMapping",{})}>
+                        Виправити у відповідності →
+                      </button>
+                    )}
+                  </div>
+                  <div style={{maxHeight:280,overflow:"auto"}}>
+                    <table className="data-table compact" style={{fontSize:11}}>
+                      <thead><tr><th>Brand UID</th><th>Назва (fact)</th><th style={{textAlign:"right"}}>Рядків</th><th style={{textAlign:"right"}}>Виручка з ПДВ</th><th>Impact</th><th>Джерело</th><th></th></tr></thead>
+                      <tbody>
+                        {brandCoverage.unmapped_brands_list.map(r=>(
+                          <tr key={`${r.source_id}_${r.brand_uid}`}>
+                            <td style={{fontFamily:"var(--font-mono)",fontSize:10,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.brand_uid}>{r.brand_uid||"—"}</td>
+                            <td>{r.brand_name||"—"}</td>
+                            <td className="amount-cell">{(r.rows_count||0).toLocaleString("uk-UA")}</td>
+                            <td className="amount-cell">{fmt(r.sales_vat_sum)}</td>
+                            <td style={{fontSize:10,fontWeight:700,color:r.impact_level==="HIGH"?"#991b1b":r.impact_level==="MEDIUM"?"#92400e":"#374151",background:r.impact_level==="HIGH"?"#fee2e2":r.impact_level==="MEDIUM"?"#fef3c7":"#f9fafb",padding:"1px 6px",borderRadius:4,border:"1px solid currentColor"}}>{r.impact_level||"—"}</td>
+                            <td style={{color:"var(--text-muted)"}}>{r.source_id}</td>
+                            <td><button className="btn btn-secondary btn-sm" style={{fontSize:10,padding:"1px 8px",whiteSpace:"nowrap",background:"#eff6ff",borderColor:"#3b82f6",color:"#1e40af"}} onClick={()=>setMapBrandRow(r)}>+ Прив'язати</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {brandCoverage.unmapped_brands_list?.length===0&&(
+                <div className="note" style={{margin:0}}>Усі товарні групи/бренди мають mapping. Planning coverage для брендів = 100%.</div>
+              )}
+            </div>
+          )}
+          {!brandCoverage&&!brandCoverLoading&&(
+            <div className="note" style={{margin:0}}>Натисніть "Оновити" щоб перевірити покриття маппінгу брендів.</div>
           )}
         </div>
       )}
@@ -1485,6 +1699,25 @@ export default function PlanningPage({ setActivePage }) {
             </div>
           )}
 
+          {/* Grouping toggle panel */}
+          <div style={{padding:"8px 20px",borderBottom:"1px solid var(--border)",background:"var(--gray-50)",display:"flex",flexWrap:"wrap",alignItems:"center",gap:16}}>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:"0.4px"}}>Групування:</span>
+            {[
+              {key:"region",label:"Регіон"},
+              {key:"branch",label:"Філія"},
+              {key:"organization",label:"Організація"},
+              {key:"department",label:"Підрозділ"},
+              {key:"brand",label:"Бренд / НГ"},
+            ].map(dim=>(
+              <label key={dim.key} className={`group-toggle-label${groupBy.includes(dim.key)?" group-toggle-active":""}`}>
+                <input type="checkbox" checked={groupBy.includes(dim.key)} onChange={()=>toggleGroupDim(dim.key)} style={{cursor:"pointer",accentColor:"var(--brand)"}}/>
+                {dim.label}
+              </label>
+            ))}
+            {groupBy.length>0&&<button className="group-toggle-reset" onClick={()=>setGroupBy([])}>× Скинути</button>}
+            {groupedLoading&&<span style={{fontSize:11,color:"var(--text-muted)"}}>…</span>}
+          </div>
+
           {/* Filter bar */}
           <div style={{padding:"10px 20px",borderBottom:"1px solid var(--border)"}}>
             <div className="filter-bar" style={{marginBottom:0}}>
@@ -1509,70 +1742,181 @@ export default function PlanningPage({ setActivePage }) {
             </div>
           </div>
 
-          {planLoading&&!planData?<div className="loading-state"><div className="loading-spinner"/><div className="loading-message">Завантаження…</div></div>:!planData||planData.rows.length===0?(
-            <div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-message">{planData?.total_count===0?"Немає рядків. Спочатку згенеруйте план.":"Немає рядків за фільтром."}</div></div>
-          ):(
-            <div className="table-wrap-sticky">
-              <table className="data-table compact" style={{minWidth:1980}}>
-                <thead>
-                  <tr>
-                    <th rowSpan={2} style={{minWidth:68}}>Місяць</th><th rowSpan={2} style={{minWidth:110}}>Підрозділ</th><th rowSpan={2} style={{minWidth:110}}>Товарна група</th><th rowSpan={2} style={{minWidth:80}}>Холдинг</th><th rowSpan={2} style={{minWidth:90}}>Організація</th><th rowSpan={2} style={{minWidth:80}}>Філія</th><th rowSpan={2} style={{minWidth:68}}>Регіон</th>
-                    <th colSpan={4} className="th-group-vat" style={{textAlign:"center"}}>з ПДВ</th>
-                    <th colSpan={4} className="th-group-kg"  style={{textAlign:"center"}}>кг</th>
-                    <th colSpan={4} className="th-group-dal" style={{textAlign:"center"}}>дал</th>
-                    <th colSpan={2} className="th-group-price" style={{textAlign:"center"}}>Ціна/кг</th>
-                    <th rowSpan={2} style={{minWidth:68,textAlign:"center"}}>Ефекти</th>
-                    <th rowSpan={2} style={{minWidth:60,textAlign:"center"}}>Mapping</th>
-                  </tr>
-                  <tr>
-                    {["Факт","План","Δ","Δ%"].map(h=><th key={`v${h}`} className="th-group-vat" style={{textAlign:"right"}}>{h}</th>)}
-                    {["Факт","План","Δ","Δ%"].map(h=><th key={`k${h}`} className="th-group-kg"  style={{textAlign:"right"}}>{h}</th>)}
-                    {["Факт","План","Δ","Δ%"].map(h=><th key={`d${h}`} className="th-group-dal" style={{textAlign:"right"}}>{h}</th>)}
-                    {["Факт","План"].map(h=><th key={`p${h}`} className="th-group-price" style={{textAlign:"right"}}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {planData.rows.map(r=>{
-                    const appliedIds=Array.isArray(r.applied_rule_ids_json)?r.applied_rule_ids_json:[];
-                    const hasNoRules=appliedIds.length===0;
-                    return(
-                      <tr key={r.id} className={hasNoRules?"row-no-rules":""}>
-                        <td style={{whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.period_month?.slice(0,7)}</td>
-                        <td style={{maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.department_name}>{r.department_name||"—"}</td>
-                        <td style={{maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.product_group_name}>{r.product_group_name||"—"}</td>
-                        <td style={{fontSize:11,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.holding_name}>{r.holding_name||"—"}</td>
-                        <td style={{fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.organization_name}>{r.organization_name||"—"}</td>
-                        <td style={{fontSize:11,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.branch_name}>{r.branch_name||"—"}</td>
-                        <td style={{fontSize:11,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}}>{r.region_name||"—"}</td>
-                        <td className="amount-cell">{fmt(r.fact_sales_vat)}</td>
-                        <td className="amount-cell" style={{fontWeight:600}}>{fmt(r.plan_sales_vat)}</td>
-                        <td className={`amount-cell ${diffCls(r.diff_sales_vat)}`}>{r.diff_sales_vat?fmt(r.diff_sales_vat):"—"}</td>
-                        <td className={`amount-cell ${diffCls(r.diff_sales_vat_pct)}`}>{fmtPct(r.diff_sales_vat_pct)}</td>
-                        <td className="amount-cell">{fmtN(r.fact_sales_kg)}</td>
-                        <td className="amount-cell" style={{fontWeight:600}}>{fmtN(r.plan_sales_kg)}</td>
-                        <td className={`amount-cell ${diffCls(r.diff_kg)}`}>{r.diff_kg?fmtN(r.diff_kg):"—"}</td>
-                        <td className={`amount-cell ${diffCls(r.diff_kg_pct)}`}>{fmtPct(r.diff_kg_pct)}</td>
-                        <td className="amount-cell">{fmtN(r.fact_sales_dal)}</td>
-                        <td className="amount-cell" style={{fontWeight:600}}>{fmtN(r.plan_sales_dal)}</td>
-                        <td className={`amount-cell ${diffCls(r.diff_dal)}`}>{r.diff_dal?fmtN(r.diff_dal):"—"}</td>
-                        <td className={`amount-cell ${diffCls(r.diff_dal_pct)}`}>{fmtPct(r.diff_dal_pct)}</td>
-                        <td className="amount-cell">{fmt(r.fact_price_per_kg,4)}</td>
-                        <td className="amount-cell" style={{fontWeight:600}}>{fmt(r.plan_price_per_kg,4)}</td>
-                        <td style={{textAlign:"center"}}><span title={`Ефектів: ${appliedIds.length}`} style={{fontSize:11,cursor:"default",color:appliedIds.length>0?"var(--brand)":"var(--text-muted)"}}>{appliedIds.length>0?`${appliedIds.length} еф.`:"—"}</span></td>
-                        <td style={{textAlign:"center"}}>{r.mapping_status&&r.mapping_status!=="OK"&&(
-                          <span title={r.mapping_status} style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:4,background:r.mapping_status==="NO_DEPARTMENT_MAPPING"?"#fee2e2":r.mapping_status==="NO_BRAND_MAPPING"?"#fef3c7":"#fff7ed",color:r.mapping_status==="NO_DEPARTMENT_MAPPING"?"#991b1b":r.mapping_status==="NO_BRAND_MAPPING"?"#92400e":"#c2410c",border:"1px solid currentColor"}}>
-                            {r.mapping_status==="NO_DEPARTMENT_MAPPING"?"NO DEPT":r.mapping_status==="NO_BRAND_MAPPING"?"NO BRAND":"PARTIAL"}
-                          </span>
-                        )}</td>
+          {groupBy.length>0?(
+            /* ── Grouped table — same full-width structure as detailed ───────── */
+            groupedLoading&&!groupedData?(
+              <div className="loading-state"><div className="loading-spinner"/><div className="loading-message">Завантаження…</div></div>
+            ):!groupedData?.rows?.length?(
+              <div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-message">Немає даних за вибраними фільтрами та групуванням.</div></div>
+            ):(
+              <div className="table-wrap-sticky">
+                <table className="data-table compact grouped-table" style={{minWidth:1980}}>
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} style={{minWidth:220}}>Група</th>
+                      <th rowSpan={2} style={{minWidth:110,color:"var(--text-muted)"}}>Підрозділ</th>
+                      <th rowSpan={2} style={{minWidth:110,color:"var(--text-muted)"}}>Товарна група</th>
+                      <th rowSpan={2} style={{minWidth:80,color:"var(--text-muted)"}}>Холдинг</th>
+                      <th rowSpan={2} style={{minWidth:90,color:"var(--text-muted)"}}>Організація</th>
+                      <th rowSpan={2} style={{minWidth:80,color:"var(--text-muted)"}}>Філія</th>
+                      <th rowSpan={2} style={{minWidth:68,color:"var(--text-muted)"}}>Регіон</th>
+                      <th colSpan={4} className="th-group-vat" style={{textAlign:"center"}}>з ПДВ</th>
+                      <th colSpan={4} className="th-group-kg"  style={{textAlign:"center"}}>кг</th>
+                      <th colSpan={4} className="th-group-dal" style={{textAlign:"center"}}>дал</th>
+                      <th colSpan={2} className="th-group-price" style={{textAlign:"center"}}>Ціна/кг</th>
+                      <th rowSpan={2} style={{minWidth:68,textAlign:"center",color:"var(--text-muted)"}}>Ефекти</th>
+                      <th rowSpan={2} style={{minWidth:60,textAlign:"center",color:"var(--text-muted)"}}>Mapping</th>
+                    </tr>
+                    <tr>
+                      {["Факт","План","Δ","Δ%"].map(h=><th key={`v${h}`} className="th-group-vat" style={{textAlign:"right"}}>{h}</th>)}
+                      {["Факт","План","Δ","Δ%"].map(h=><th key={`k${h}`} className="th-group-kg"  style={{textAlign:"right"}}>{h}</th>)}
+                      {["Факт","План","Δ","Δ%"].map(h=><th key={`d${h}`} className="th-group-dal" style={{textAlign:"right"}}>{h}</th>)}
+                      {["Факт","План"].map(h=><th key={`p${h}`} className="th-group-price" style={{textAlign:"right"}}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleGroupedRows.map((row,idx)=>{
+                      const hasChildren=groupChildKeys.has(row.group_key);
+                      const isExpanded=expandedGroups.has(row.group_key);
+                      return(
+                        <tr key={idx} className={`grouped-row grouped-level-${row.level}`} onClick={hasChildren?()=>toggleGroupRow(row.group_key):undefined} style={{cursor:hasChildren?"pointer":"default"}}>
+                          <td className="grouped-label-cell" style={{paddingLeft:8+row.level*20}}>
+                            {hasChildren&&<span className="grouped-expand-icon">{isExpanded?"▼":"▶"}</span>}
+                            <span className="grouped-label-text">{row.group_label||"—"}</span>
+                            {row.rows_count>0&&<span style={{fontSize:10,color:"var(--text-muted)",marginLeft:5}}>({row.rows_count.toLocaleString("uk-UA")})</span>}
+                          </td>
+                          <td style={{color:"var(--text-muted)",fontSize:11}}>—</td>
+                          <td style={{color:"var(--text-muted)",fontSize:11}}>—</td>
+                          <td style={{color:"var(--text-muted)",fontSize:11}}>—</td>
+                          <td style={{color:"var(--text-muted)",fontSize:11}}>—</td>
+                          <td style={{color:"var(--text-muted)",fontSize:11}}>—</td>
+                          <td style={{color:"var(--text-muted)",fontSize:11}}>—</td>
+                          <td className="amount-cell">{fmt(row.fact_revenue)}</td>
+                          <td className="amount-cell grouped-plan-cell">{fmt(row.plan_revenue)}</td>
+                          <td className={`amount-cell ${diffCls(row.delta_revenue)}`}>{row.delta_revenue?fmt(row.delta_revenue):"—"}</td>
+                          <td className={`amount-cell ${diffCls(row.delta_revenue_pct)}`}>{fmtPct(row.delta_revenue_pct)}</td>
+                          <td className="amount-cell">{fmtN(row.fact_kg)}</td>
+                          <td className="amount-cell grouped-plan-cell">{fmtN(row.plan_kg)}</td>
+                          <td className={`amount-cell ${diffCls(row.delta_kg)}`}>{row.delta_kg?fmtN(row.delta_kg):"—"}</td>
+                          <td className={`amount-cell ${diffCls(row.delta_kg_pct)}`}>{fmtPct(row.delta_kg_pct)}</td>
+                          <td className="amount-cell">{fmtN(row.fact_dal)}</td>
+                          <td className="amount-cell grouped-plan-cell">{fmtN(row.plan_dal)}</td>
+                          <td className={`amount-cell ${diffCls(row.delta_dal)}`}>{row.delta_dal?fmtN(row.delta_dal):"—"}</td>
+                          <td className={`amount-cell ${diffCls(row.delta_dal_pct)}`}>{fmtPct(row.delta_dal_pct)}</td>
+                          <td className="amount-cell">{row.fact_kg>0?fmtN(row.fact_revenue/row.fact_kg,4):"—"}</td>
+                          <td className="amount-cell grouped-plan-cell">{row.plan_kg>0?fmtN(row.plan_revenue/row.plan_kg,4):"—"}</td>
+                          <td style={{textAlign:"center",color:"var(--text-muted)"}}>—</td>
+                          <td/>
+                        </tr>
+                      );
+                    })}
+                    {groupedData.summary&&(
+                      <tr className="grouped-summary-row">
+                        <td style={{paddingLeft:8,fontWeight:700}}>Всього</td>
+                        <td colSpan={6}/>
+                        <td className="amount-cell">{fmt(groupedData.summary.fact_revenue)}</td>
+                        <td className="amount-cell grouped-plan-cell">{fmt(groupedData.summary.plan_revenue)}</td>
+                        <td className={`amount-cell ${diffCls(groupedData.summary.delta_revenue)}`}>{groupedData.summary.delta_revenue?fmt(groupedData.summary.delta_revenue):"—"}</td>
+                        <td className={`amount-cell ${diffCls(groupedData.summary.delta_revenue_pct)}`}>{fmtPct(groupedData.summary.delta_revenue_pct)}</td>
+                        <td className="amount-cell">{fmtN(groupedData.summary.fact_kg)}</td>
+                        <td className="amount-cell grouped-plan-cell">{fmtN(groupedData.summary.plan_kg)}</td>
+                        <td className={`amount-cell ${diffCls(groupedData.summary.delta_kg)}`}>{groupedData.summary.delta_kg?fmtN(groupedData.summary.delta_kg):"—"}</td>
+                        <td className={`amount-cell ${diffCls(groupedData.summary.delta_kg_pct)}`}>{fmtPct(groupedData.summary.delta_kg_pct)}</td>
+                        <td className="amount-cell">{fmtN(groupedData.summary.fact_dal)}</td>
+                        <td className="amount-cell grouped-plan-cell">{fmtN(groupedData.summary.plan_dal)}</td>
+                        <td className={`amount-cell ${diffCls(groupedData.summary.delta_dal)}`}>{groupedData.summary.delta_dal?fmtN(groupedData.summary.delta_dal):"—"}</td>
+                        <td className={`amount-cell ${diffCls(groupedData.summary.delta_dal_pct)}`}>{fmtPct(groupedData.summary.delta_dal_pct)}</td>
+                        <td className="amount-cell">{groupedData.summary.fact_kg>0?fmtN(groupedData.summary.fact_revenue/groupedData.summary.fact_kg,4):"—"}</td>
+                        <td className="amount-cell grouped-plan-cell">{groupedData.summary.plan_kg>0?fmtN(groupedData.summary.plan_revenue/groupedData.summary.plan_kg,4):"—"}</td>
+                        <td colSpan={2}/>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ):(
+            /* ── Detailed table (original) ───────────────────────────────────── */
+            planLoading&&!planData?<div className="loading-state"><div className="loading-spinner"/><div className="loading-message">Завантаження…</div></div>:!planData?.rows?.length?(
+              <div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-message">{planData?.total_count===0?"Немає рядків. Спочатку згенеруйте план.":"Немає рядків за фільтром."}</div></div>
+            ):(
+              <div className="table-wrap-sticky">
+                <table className="data-table compact" style={{minWidth:1980}}>
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} style={{minWidth:68}}>Місяць</th><th rowSpan={2} style={{minWidth:110}}>Підрозділ</th><th rowSpan={2} style={{minWidth:110}}>Товарна група</th><th rowSpan={2} style={{minWidth:80}}>Холдинг</th><th rowSpan={2} style={{minWidth:90}}>Організація</th><th rowSpan={2} style={{minWidth:80}}>Філія</th><th rowSpan={2} style={{minWidth:68}}>Регіон</th>
+                      <th colSpan={4} className="th-group-vat" style={{textAlign:"center"}}>з ПДВ</th>
+                      <th colSpan={4} className="th-group-kg"  style={{textAlign:"center"}}>кг</th>
+                      <th colSpan={4} className="th-group-dal" style={{textAlign:"center"}}>дал</th>
+                      <th colSpan={2} className="th-group-price" style={{textAlign:"center"}}>Ціна/кг</th>
+                      <th rowSpan={2} style={{minWidth:68,textAlign:"center"}}>Ефекти</th>
+                      <th rowSpan={2} style={{minWidth:60,textAlign:"center"}}>Mapping</th>
+                    </tr>
+                    <tr>
+                      {["Факт","План","Δ","Δ%"].map(h=><th key={`v${h}`} className="th-group-vat" style={{textAlign:"right"}}>{h}</th>)}
+                      {["Факт","План","Δ","Δ%"].map(h=><th key={`k${h}`} className="th-group-kg"  style={{textAlign:"right"}}>{h}</th>)}
+                      {["Факт","План","Δ","Δ%"].map(h=><th key={`d${h}`} className="th-group-dal" style={{textAlign:"right"}}>{h}</th>)}
+                      {["Факт","План"].map(h=><th key={`p${h}`} className="th-group-price" style={{textAlign:"right"}}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planData.rows.map(r=>{
+                      const appliedIds=Array.isArray(r.applied_rule_ids_json)?r.applied_rule_ids_json:[];
+                      const hasNoRules=appliedIds.length===0;
+                      return(
+                        <tr key={r.id} className={hasNoRules?"row-no-rules":""}>
+                          <td style={{whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.period_month?.slice(0,7)}</td>
+                          <td style={{maxWidth:120,whiteSpace:"nowrap"}} title={r.department_name}>
+                            <div style={{display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",flex:1,minWidth:0}}>{r.department_name||"—"}</span>
+                              <CopyCellButton value={r.department_name}/>
+                            </div>
+                          </td>
+                          <td style={{maxWidth:110,whiteSpace:"nowrap"}} title={r.product_group_name}>
+                            <div style={{display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",flex:1,minWidth:0}}>{r.product_group_name||"—"}</span>
+                              <CopyCellButton value={r.product_group_name}/>
+                            </div>
+                          </td>
+                          <td style={{fontSize:11,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.holding_name}>{r.holding_name||"—"}</td>
+                          <td style={{fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.organization_name}>{r.organization_name||"—"}</td>
+                          <td style={{fontSize:11,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.branch_name}>{r.branch_name||"—"}</td>
+                          <td style={{fontSize:11,maxWidth:80,whiteSpace:"nowrap",color:"var(--text-muted)"}} title={r.region_name}>
+                            <div style={{display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",flex:1,minWidth:0}}>{r.region_name||"—"}</span>
+                              <CopyCellButton value={r.region_name}/>
+                            </div>
+                          </td>
+                          <td className="amount-cell">{fmt(r.fact_sales_vat)}</td>
+                          <td className="amount-cell" style={{fontWeight:600}}>{fmt(r.plan_sales_vat)}</td>
+                          <td className={`amount-cell ${diffCls(r.diff_sales_vat)}`}>{r.diff_sales_vat?fmt(r.diff_sales_vat):"—"}</td>
+                          <td className={`amount-cell ${diffCls(r.diff_sales_vat_pct)}`}>{fmtPct(r.diff_sales_vat_pct)}</td>
+                          <td className="amount-cell">{fmtN(r.fact_sales_kg)}</td>
+                          <td className="amount-cell" style={{fontWeight:600}}>{fmtN(r.plan_sales_kg)}</td>
+                          <td className={`amount-cell ${diffCls(r.diff_kg)}`}>{r.diff_kg?fmtN(r.diff_kg):"—"}</td>
+                          <td className={`amount-cell ${diffCls(r.diff_kg_pct)}`}>{fmtPct(r.diff_kg_pct)}</td>
+                          <td className="amount-cell">{fmtN(r.fact_sales_dal)}</td>
+                          <td className="amount-cell" style={{fontWeight:600}}>{fmtN(r.plan_sales_dal)}</td>
+                          <td className={`amount-cell ${diffCls(r.diff_dal)}`}>{r.diff_dal?fmtN(r.diff_dal):"—"}</td>
+                          <td className={`amount-cell ${diffCls(r.diff_dal_pct)}`}>{fmtPct(r.diff_dal_pct)}</td>
+                          <td className="amount-cell">{fmt(r.fact_price_per_kg,4)}</td>
+                          <td className="amount-cell" style={{fontWeight:600}}>{fmt(r.plan_price_per_kg,4)}</td>
+                          <td style={{textAlign:"center"}}><span title={`Ефектів: ${appliedIds.length}`} style={{fontSize:11,cursor:"default",color:appliedIds.length>0?"var(--brand)":"var(--text-muted)"}}>{appliedIds.length>0?`${appliedIds.length} еф.`:"—"}</span></td>
+                          <td style={{textAlign:"center"}}>{r.mapping_status&&r.mapping_status!=="OK"&&(
+                            <span title={r.mapping_status} style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:4,background:r.mapping_status==="NO_DEPARTMENT_MAPPING"?"#fee2e2":r.mapping_status==="NO_BRAND_MAPPING"?"#fef3c7":"#fff7ed",color:r.mapping_status==="NO_DEPARTMENT_MAPPING"?"#991b1b":r.mapping_status==="NO_BRAND_MAPPING"?"#92400e":"#c2410c",border:"1px solid currentColor"}}>
+                              {r.mapping_status==="NO_DEPARTMENT_MAPPING"?"NO DEPT":r.mapping_status==="NO_BRAND_MAPPING"?"NO BRAND":"PARTIAL"}
+                            </span>
+                          )}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
           )}
-          {planData&&planData.total_pages>1&&(
-            <div style={{padding:"4px 20px 10px",borderTop:"1px solid var(--border)"}}><Pagination page={planPage} totalPages={planData.total_pages} total={planData.total_count} pageRows={planData.rows.length} onPage={setPlanPage}/></div>
+          {groupBy.length===0&&planData&&planData.total_pages>1&&(
+            <div style={{padding:"4px 20px 10px",borderTop:"1px solid var(--border)"}}><Pagination page={planPage} totalPages={planData.total_pages} total={planData.total_count} pageRows={planData.rows?.length??0} onPage={setPlanPage}/></div>
           )}
         </div>
       )}
@@ -1581,7 +1925,7 @@ export default function PlanningPage({ setActivePage }) {
       {selectedScenario&&selectedVersion&&(
         <div className="content-card">
           <div className="card-top"><div className="card-title-block"><h2>Історія запусків</h2><p>Аудит генерацій для поточної версії</p></div><button className="btn btn-secondary btn-sm" onClick={loadGenLog} disabled={genLogLoading}>{genLogLoading?"…":"↻ Оновити"}</button></div>
-          {genLogLoading&&!genLog?<div className="loading-state"><div className="loading-spinner"/><div className="loading-message">Завантаження…</div></div>:!genLog||genLog.rows.length===0?<div className="note" style={{margin:0}}>Немає запусків.</div>:(
+          {genLogLoading&&!genLog?<div className="loading-state"><div className="loading-spinner"/><div className="loading-message">Завантаження…</div></div>:!genLog?.rows?.length?<div className="note" style={{margin:0}}>Немає запусків.</div>:(
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {genLog.rows.map((g,idx)=>{
                 const isLast=idx===0; const isOpen=expandedGen===g.generation_id;
@@ -1650,6 +1994,604 @@ export default function PlanningPage({ setActivePage }) {
     </div>
   );
 }
+
+// ── QuickMapBrandModal — inline brand/product group mapping from Planning ─────
+
+function QuickMapBrandModal({ row, beforeCoverage, onClose, onMapped }) {
+  const [action,        setAction]        = React.useState("attach_existing");
+  const [masters,       setMasters]       = React.useState([]);
+  const [mastersLoading,setMastersLoading]= React.useState(true);
+  const [suggestions,   setSuggestions]   = React.useState([]);
+  const [suggestLoading,setSuggestLoading]= React.useState(true);
+  const [search,        setSearch]        = React.useState("");
+  const [selectedMaster,setSelectedMaster]= React.useState(null);
+  const [createForm,    setCreateForm]    = React.useState({
+    brand_name:  row.brand_name || "",
+    brand_group: "",
+    brand_uid:   row.brand_uid  || "",
+  });
+  const [saving, setSaving] = React.useState(false);
+  const [error,  setError]  = React.useState(null);
+  const [result, setResult] = React.useState(null);
+
+  React.useEffect(() => {
+    getMasterBrands()
+      .then(setMasters).catch(()=>{}).finally(()=>setMastersLoading(false));
+    getSimilarBrands(row.brand_name || "", 8)
+      .then(setSuggestions).catch(()=>{}).finally(()=>setSuggestLoading(false));
+  }, []);
+
+  const normBrand = (s) => (s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+
+  const displayList = React.useMemo(() => {
+    if (search.trim().length >= 2) {
+      const q = search.toLowerCase();
+      const qNorm = normBrand(search);
+      // Build score lookup from pre-computed suggestions
+      const suggestMap = Object.fromEntries(suggestions.map(s => [s.master_brand_id, s]));
+      return masters
+        .filter(m =>
+          (m.brand_name||"").toLowerCase().includes(q) ||
+          (m.brand_uid||"").toLowerCase().includes(q) ||
+          (m.brand_group||"").toLowerCase().includes(q) ||
+          (m.normalized_name||"").toLowerCase().includes(q) ||
+          (qNorm.length >= 2 && normBrand(m.brand_name).includes(qNorm)) ||
+          (qNorm.length >= 2 && normBrand(m.brand_uid||"").includes(qNorm))
+        )
+        .map(m => {
+          const s = suggestMap[m.id];
+          return s ? { ...m, _score: s.match_score, _rec: s.recommendation } : m;
+        })
+        .sort((a, b) => (b._score||0) - (a._score||0))
+        .slice(0, 30);
+    }
+    // Show suggestion items enriched from masters list
+    return suggestions.map(s => {
+      const m = masters.find(x => x.id === s.master_brand_id);
+      return m ? { ...m, _score: s.match_score, _rec: s.recommendation } : null;
+    }).filter(Boolean);
+  }, [masters, search, suggestions]);
+
+  const canSave = React.useMemo(() => {
+    if (saving) return false;
+    if (action === "attach_existing") return !!selectedMaster;
+    if (action === "create_new") return !!createForm.brand_name.trim();
+    return false;
+  }, [action, selectedMaster, createForm, saving]);
+
+  const handleSave = async () => {
+    setSaving(true); setError(null);
+    try {
+      let res;
+      if (action === "attach_existing") {
+        res = await bindBrand(row.source_id, row.brand_uid, selectedMaster.id);
+      } else {
+        res = await createAndBindBrand({
+          source_id:       row.source_id,
+          source_brand_id: row.brand_uid,
+          brand_name:      createForm.brand_name.trim(),
+          brand_group:     createForm.brand_group.trim() || undefined,
+          brand_uid:       createForm.brand_uid.trim()   || undefined,
+        });
+      }
+      const afterCov = await getBrandMappingCoverage().catch(()=>null);
+      setResult({ master_id: selectedMaster?.id ?? res?.master_brand_id, afterCoverage: afterCov });
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Помилка збереження");
+    } finally { setSaving(false); }
+  };
+
+  const setF = (part) => setCreateForm(f => ({ ...f, ...part }));
+
+  const impact = result?.afterCoverage && beforeCoverage ? {
+    before: beforeCoverage.coverage_pct ?? 0,
+    after:  result.afterCoverage.coverage_pct ?? 0,
+  } : null;
+
+  const inS = {padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:4,fontSize:12,width:"100%",boxSizing:"border-box"};
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.48)",zIndex:3000,
+                 display:"flex",alignItems:"flex-start",justifyContent:"center",
+                 padding:"32px 16px",overflowY:"auto"}} onClick={onClose}>
+      <div style={{background:"#fff",borderRadius:10,width:"min(760px,96vw)",
+                   boxShadow:"0 12px 40px rgba(0,0,0,0.25)",display:"flex",flexDirection:"column"}}
+           onClick={e=>e.stopPropagation()}>
+
+        {/* ── Header ── */}
+        <div style={{padding:"14px 20px",borderBottom:"1px solid #e5e7eb",
+                     display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontWeight:700,fontSize:15}}>Прив'язати бренд / товарну групу</span>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>✕</button>
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:"16px 20px"}}>
+
+          {/* ── Result screen ── */}
+          {result && (
+            <div>
+              <div style={{padding:"14px 18px",background:"#d1fae5",border:"1px solid #6ee7b7",borderRadius:8,marginBottom:14}}>
+                <div style={{fontWeight:700,fontSize:15,color:"#065f46",marginBottom:6}}>✓ Бренд успішно прив'язано</div>
+                <div style={{fontSize:12,color:"#065f46"}}>
+                  Master Brand ID: <strong>#{result.master_id}</strong>
+                </div>
+              </div>
+              {impact && (
+                <div style={{padding:"10px 14px",background:"#f0fdf4",border:"1px solid #6ee7b7",borderRadius:7}}>
+                  <div style={{fontWeight:600,fontSize:12,color:"#065f46",marginBottom:6}}>Вплив на Brand Mapping Coverage</div>
+                  <div style={{display:"flex",gap:20,fontSize:12}}>
+                    <span>До: <strong>{impact.before}%</strong></span>
+                    <span>→</span>
+                    <span>Після: <strong style={{color:"#059669"}}>{impact.after}%</strong></span>
+                    {impact.after > impact.before &&
+                      <span style={{color:"#059669"}}>+{(impact.after-impact.before).toFixed(1)}%</span>}
+                  </div>
+                </div>
+              )}
+              <div style={{marginTop:16,display:"flex",justifyContent:"flex-end",gap:8}}>
+                <button onClick={() => onMapped(result)} className="btn btn-primary">Закрити</button>
+              </div>
+            </div>
+          )}
+
+          {!result && (
+            <>
+              {/* ── Source card ── */}
+              <div style={{padding:"10px 14px",background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:7,marginBottom:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>
+                  Source Бренд / Товарна група
+                </div>
+                <div style={{fontWeight:700,fontSize:14,color:"#1e293b",marginBottom:4}}>
+                  {row.brand_name || "—"}
+                </div>
+                <div style={{display:"flex",gap:16,fontSize:11,color:"#64748b",flexWrap:"wrap"}}>
+                  <span>UID: <code style={{fontFamily:"monospace",fontSize:10,background:"#f1f5f9",padding:"1px 4px",borderRadius:3}}>{row.brand_uid||"—"}</code></span>
+                  {row.normalized_uid&&<span style={{fontSize:10,color:"#94a3b8"}}>norm: <code style={{fontFamily:"monospace",fontSize:10}}>{row.normalized_uid}</code></span>}
+                  <span>Джерело: {row.source_id}</span>
+                  <span>Рядків: <strong>{(row.rows_count||0).toLocaleString("uk-UA")}</strong></span>
+                  <span>Виручка: <strong>{fmt(row.sales_vat_sum)}</strong></span>
+                </div>
+                {(row.brand_name||row.brand_uid)&&(
+                  <div style={{marginTop:8,display:"flex",gap:5,flexWrap:"wrap"}}>
+                    {row.brand_name&&(
+                      <button onClick={()=>setSearch(row.brand_name)}
+                        title={"Підставити у пошук: "+row.brand_name}
+                        style={{padding:"2px 8px",fontSize:10,border:"1px solid #e2e8f0",borderRadius:3,background:"#f8fafc",cursor:"pointer",color:"#374151",whiteSpace:"nowrap"}}>
+                        📋 {row.brand_name.length>30?row.brand_name.slice(0,30)+"…":row.brand_name}
+                      </button>
+                    )}
+                    {row.brand_uid&&(
+                      <button onClick={()=>setSearch(row.brand_uid)}
+                        title={"Пошук за UID: "+row.brand_uid}
+                        style={{padding:"2px 8px",fontSize:10,border:"1px solid #e2e8f0",borderRadius:3,background:"#f8fafc",cursor:"pointer",color:"#374151",whiteSpace:"nowrap",fontFamily:"monospace"}}>
+                        📋 UID
+                      </button>
+                    )}
+                    {row.normalized_uid&&(
+                      <button onClick={()=>setSearch(row.normalized_uid)}
+                        title={"Пошук за нормалізованим UID: "+row.normalized_uid}
+                        style={{padding:"2px 8px",fontSize:10,border:"1px solid #e2e8f0",borderRadius:3,background:"#f8fafc",cursor:"pointer",color:"#374151",whiteSpace:"nowrap",fontFamily:"monospace"}}>
+                        📋 norm UID
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Tabs ── */}
+              <div style={{display:"flex",gap:0,marginBottom:14,borderBottom:"2px solid #e5e7eb"}}>
+                {[["attach_existing","Прив'язати до існуючого"],["create_new","Створити новий master"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>{setAction(val);setSelectedMaster(null);setError(null);}}
+                    style={{padding:"7px 16px",fontSize:12,fontWeight:action===val?700:500,cursor:"pointer",
+                      background:"none",border:"none",borderBottom:action===val?"2px solid #7c3aed":"2px solid transparent",
+                      marginBottom:-2,color:action===val?"#7c3aed":"#6b7280"}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Error ── */}
+              {error && (
+                <div style={{padding:"8px 12px",background:"#fee2e2",border:"1px solid #fca5a5",
+                             borderRadius:6,fontSize:12,color:"#991b1b",marginBottom:10}}>{error}</div>
+              )}
+
+              {/* ════ TAB: attach existing ════ */}
+              {action === "attach_existing" && (
+                <div>
+                  {/* Search */}
+                  <input value={search} onChange={e=>setSearch(e.target.value)}
+                    placeholder="Пошук за назвою, ID, UID або нормалізованим UID..."
+                    style={{...inS,marginBottom:10}}/>
+
+                  {(mastersLoading || suggestLoading) && (
+                    <div style={{fontSize:12,color:"#94a3b8",padding:"8px 0"}}>Завантаження списку брендів…</div>
+                  )}
+
+                  {!mastersLoading && displayList.length === 0 && search.trim().length >= 2 && (
+                    <div style={{fontSize:12,color:"#64748b",padding:"8px 0"}}>
+                      За запитом "{search}" нічого не знайдено серед master брендів.
+                    </div>
+                  )}
+
+                  {!mastersLoading && displayList.length === 0 && search.trim().length < 2 && suggestions.length === 0 && (
+                    <div style={{fontSize:12,color:"#64748b",padding:"8px 0"}}>
+                      Введіть назву для пошуку або виберіть зі списку брендів.
+                    </div>
+                  )}
+
+                  {!mastersLoading && search.trim().length < 2 && suggestions.length > 0 && (
+                    <div style={{fontSize:10,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>
+                      💡 Рекомендовані варіанти ({suggestions.length}) — або натисніть кнопку "📋" вище для пошуку
+                    </div>
+                  )}
+
+                  <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:320,overflowY:"auto"}}>
+                    {displayList.map(m => {
+                      const isSelected = selectedMaster?.id === m.id;
+                      return (
+                        <div key={m.id}
+                          onClick={()=>setSelectedMaster(isSelected?null:m)}
+                          style={{padding:"8px 12px",border:`1.5px solid ${isSelected?"#7c3aed":"#e2e8f0"}`,
+                            borderRadius:6,cursor:"pointer",background:isSelected?"#f5f3ff":"#fff",
+                            transition:"all .12s"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                            <div>
+                              <div style={{fontWeight:isSelected?700:600,fontSize:13,color:isSelected?"#6d28d9":"#1e293b"}}>
+                                {m.brand_name}
+                              </div>
+                              <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>
+                                {m.brand_group && <span>Група: {m.brand_group}</span>}
+                                {m.brand_uid && <span style={{marginLeft:8,fontFamily:"monospace",fontSize:10,color:"#94a3b8"}}>UID: {m.brand_uid}</span>}
+                              {m.normalized_name && <span style={{marginLeft:8,fontFamily:"monospace",fontSize:9,color:"#cbd5e1"}}>norm: {m.normalized_name}</span>}
+                              </div>
+                              {m._score != null && (
+                                <div style={{fontSize:10,color:"#7c3aed",marginTop:2}}>
+                                  Схожість: {Math.round(m._score)}%
+                                  {m._rec && <span style={{marginLeft:6,color:"#6b7280"}}>{m._rec === "AUTO_BIND" ? "· Точний збіг" : m._rec === "RECOMMEND_BIND" ? "· Рекомендовано" : ""}</span>}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{fontSize:10,color:"#94a3b8",flexShrink:0,marginLeft:8}}>
+                              ID: #{m.id}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {selectedMaster && (
+                    <div style={{marginTop:10,padding:"6px 12px",background:"#d1fae5",border:"1px solid #6ee7b7",borderRadius:6,fontSize:12,color:"#065f46"}}>
+                      ✓ Вибрано: <strong>{selectedMaster.brand_name}</strong> (ID: #{selectedMaster.id})
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ════ TAB: create new ════ */}
+              {action === "create_new" && (
+                <div>
+                  <div style={{fontSize:12,color:"#6b7280",marginBottom:12}}>
+                    Буде створено новий master бренд і автоматично прив'язано до цього джерела.
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>
+                        Назва master-бренду *
+                      </label>
+                      <input value={createForm.brand_name} onChange={e=>setF({brand_name:e.target.value})}
+                        placeholder="Назва бренду / товарної групи" style={inS}/>
+                      {row.brand_name && createForm.brand_name !== row.brand_name && (
+                        <button onClick={()=>setF({brand_name:row.brand_name})}
+                          style={{fontSize:10,marginTop:3,color:"#7c3aed",background:"none",border:"none",cursor:"pointer",padding:0}}>
+                          ← Підставити з джерела: {row.brand_name}
+                        </button>
+                      )}
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>
+                        Група бренду
+                      </label>
+                      <input value={createForm.brand_group} onChange={e=>setF({brand_group:e.target.value})}
+                        placeholder="Наприклад: Вино, Горілка, Пиво…" style={inS}/>
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:3}}>
+                        UID бренду
+                      </label>
+                      <input value={createForm.brand_uid} onChange={e=>setF({brand_uid:e.target.value})}
+                        placeholder="GUID або код бренду (необов'язково)" style={{...inS,fontFamily:"monospace"}}/>
+                      {row.brand_uid && createForm.brand_uid !== row.brand_uid && (
+                        <button onClick={()=>setF({brand_uid:row.brand_uid})}
+                          style={{fontSize:10,marginTop:3,color:"#7c3aed",background:"none",border:"none",cursor:"pointer",padding:0}}>
+                          ← Підставити UID з джерела
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        {!result && (
+          <div style={{padding:"10px 20px",borderTop:"1px solid #e5e7eb",display:"flex",justifyContent:"flex-end",gap:8}}>
+            <button onClick={onClose} className="btn btn-secondary">Скасувати</button>
+            <button onClick={handleSave} disabled={!canSave}
+              style={{padding:"6px 20px",border:"none",borderRadius:6,fontSize:12,fontWeight:700,
+                cursor:canSave?"pointer":"not-allowed",
+                background:canSave?"#7c3aed":"#e5e7eb",
+                color:canSave?"#fff":"#9ca3af"}}>
+              {saving?"Збереження…": action==="create_new"?"Створити master і прив'язати":"Прив'язати до вибраного"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ── ReadinessProblemModal — universal diagnostics modal ───────────────────────
+
+const PROBLEM_LABELS = {
+  dept_mapping:       { title: "Підрозділи без маппінгу",      nav: "departmentSourceMapping", navLabel: "Відкрити відповідність підрозділів →" },
+  brand_mapping:      { title: "Бренди/товарні групи без маппінгу", nav: "brandSourceMapping",  navLabel: "Відкрити відповідність брендів →" },
+  missing_region:     { title: "Підрозділи без регіону",         nav: "departments",             navLabel: "Відкрити довідник підрозділів →" },
+  missing_branch:     { title: "Підрозділи без філії",           nav: "departments",             navLabel: "Відкрити довідник підрозділів →" },
+  missing_organization:{ title: "Підрозділи без організації",    nav: "departments",             navLabel: "Відкрити довідник підрозділів →" },
+  missing_holding:    { title: "Підрозділи без холдингу",        nav: "departments",             navLabel: "Відкрити довідник підрозділів →" },
+};
+
+function fmtAmt(v) {
+  if (!v && v !== 0) return "—";
+  if (Math.abs(v) >= 1_000_000) return `${(v/1_000_000).toFixed(1)}M ₴`;
+  if (Math.abs(v) >= 1_000)     return `${Math.round(v/1_000)}K ₴`;
+  return `${Math.round(v)} ₴`;
+}
+
+function ReadinessProblemModal({ problemType, onClose, setActivePage, onRefreshReadiness }) {
+  const cfg = PROBLEM_LABELS[problemType] || { title: problemType, nav: null, navLabel: null };
+  const [data,       setData]       = React.useState(null);
+  const [loading,    setLoading]    = React.useState(true);
+  const [error,      setError]      = React.useState(null);
+  const [page,       setPage]       = React.useState(1);
+  const [search,     setSearch]     = React.useState("");
+  const [q,          setQ]          = React.useState("");
+  const [editingRow, setEditingRow] = React.useState(null); // row with master_id to edit
+  const [mappingRow, setMappingRow] = React.useState(null); // brand row to map inline
+  const PAGE_SIZE = 50;
+
+  // Is this a department-attribute problem type (has editable master department)?
+  const isDeptAttr = ["missing_region","missing_branch","missing_organization","missing_holding"].includes(problemType);
+
+  const load = React.useCallback((pg, srch) => {
+    setLoading(true); setError(null);
+    getReadinessProblems({ problem_type: problemType, page: pg, page_size: PAGE_SIZE, search: srch || undefined })
+      .then(setData).catch(e => setError(e?.response?.data?.detail || "Помилка завантаження"))
+      .finally(() => setLoading(false));
+  }, [problemType]);
+
+  React.useEffect(() => { load(1, ""); }, [load]);
+
+  const handleSearch = () => { setPage(1); load(1, q); setSearch(q); };
+
+  const isBrand = problemType === "brand_mapping";
+  const isDept  = !isBrand;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:3000,
+                  display:"flex", alignItems:"flex-start", justifyContent:"center",
+                  padding:"40px 16px", overflowY:"auto" }}>
+      <div style={{ background:"#fff", borderRadius:10, width:"min(900px,96vw)",
+                    boxShadow:"0 12px 40px rgba(0,0,0,.25)", display:"flex", flexDirection:"column" }}>
+
+        {/* Header */}
+        <div style={{ padding:"14px 20px", borderBottom:"1px solid #e5e7eb",
+                      display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:15 }}>Проблеми готовності: {cfg.title}</div>
+            {data?.kpi && (
+              <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>
+                {data.kpi.unique_items} унікальних · {(data.kpi.affected_rows||0).toLocaleString("uk-UA")} рядків fact ·
+                {" "}Виручка: {fmtAmt(data.kpi.affected_sales)}
+              </div>
+            )}
+          </div>
+          <div style={{ display:"flex", gap:6, alignItems:"center", flexShrink:0 }}>
+            {setActivePage && cfg.nav && (
+              <button onClick={() => { onClose(); setActivePage(cfg.nav, {}); }}
+                style={{ padding:"5px 10px", fontSize:11, border:"1px solid #bfdbfe",
+                         borderRadius:5, background:"#eff6ff", cursor:"pointer", color:"#1e40af", whiteSpace:"nowrap" }}>
+                {cfg.navLabel}
+              </button>
+            )}
+            <button onClick={onClose}
+              style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"#6b7280" }}>✕</button>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div style={{ padding:"8px 20px", borderBottom:"1px solid #f1f5f9", display:"flex", gap:6 }}>
+          <input value={q} onChange={e => setQ(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSearch()}
+            placeholder="Пошук по ID або назві…"
+            style={{ flex:1, padding:"4px 8px", border:"1px solid #d1d5db", borderRadius:4, fontSize:12 }}/>
+          <button onClick={handleSearch}
+            style={{ padding:"4px 12px", border:"1px solid #d1d5db", borderRadius:4,
+                     background:"#f9fafb", cursor:"pointer", fontSize:11 }}>Знайти</button>
+          {search && (
+            <button onClick={() => { setQ(""); setSearch(""); setPage(1); load(1, ""); }}
+              style={{ padding:"4px 10px", border:"1px solid #fca5a5", borderRadius:4,
+                       background:"#fef2f2", cursor:"pointer", fontSize:11, color:"#dc2626" }}>✕ Скинути</button>
+          )}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex:1, overflowY:"auto", maxHeight:"60vh" }}>
+          {loading && <div style={{ padding:32, textAlign:"center", color:"#9ca3af" }}>Завантаження…</div>}
+          {error   && <div style={{ padding:16, color:"#dc2626", fontSize:12 }}>⚠ {error}</div>}
+          {!loading && data && (
+            <>
+              {!data?.rows?.length ? (
+                <div style={{ padding:32, textAlign:"center", color:"#9ca3af" }}>
+                  Проблем не знайдено за поточними критеріями.
+                </div>
+              ) : (
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                  <thead>
+                    <tr style={{ background:"#f8fafc", position:"sticky", top:0 }}>
+                      <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>
+                        {isBrand ? "Brand UID (fact)" : "Dept UID (fact)"}
+                      </th>
+                      <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Назва (fact)</th>
+                      {isDept && problemType !== "dept_mapping" && (
+                        <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Master підрозділ</th>
+                      )}
+                      {isDept && problemType !== "dept_mapping" && (
+                        <>
+                          <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Холдинг</th>
+                          <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Орг.</th>
+                          <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Регіон</th>
+                          <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Філія</th>
+                        </>
+                      )}
+                      <th style={{ padding:"5px 10px", textAlign:"right", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Рядків</th>
+                      <th style={{ padding:"5px 10px", textAlign:"right", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Виручка</th>
+                      <th style={{ padding:"5px 10px", textAlign:"left", borderBottom:"1px solid #e5e7eb", fontWeight:600, fontSize:10, color:"#6b7280" }}>Дія</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.rows.map((row, i) => (
+                      <tr key={i} style={{ borderBottom:"1px solid #f3f4f6" }}>
+                        <td style={{ padding:"4px 10px", fontFamily:"monospace", fontSize:10, color:"#374151",
+                                     maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}
+                            title={row.source_item_id}>{row.source_item_id || "—"}</td>
+                        <td style={{ padding:"4px 10px", maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}
+                            title={row.source_item_name}>{row.source_item_name || "—"}</td>
+                        {isDept && problemType !== "dept_mapping" && (
+                          <td style={{ padding:"4px 10px", fontSize:11, color:"#1e40af", maxWidth:150,
+                                       overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}
+                              title={row.master_name}>{row.master_name || "—"}</td>
+                        )}
+                        {isDept && problemType !== "dept_mapping" && (
+                          <>
+                            <td style={{ padding:"4px 10px", color:"#6b7280" }}>{row.holding_name || <span style={{color:"#fca5a5"}}>—</span>}</td>
+                            <td style={{ padding:"4px 10px", color:"#6b7280" }}>{row.organization_name || <span style={{color:"#fca5a5"}}>—</span>}</td>
+                            <td style={{ padding:"4px 10px", color:row.region_name?"#6b7280":"#b91c1c", fontWeight:!row.region_name&&problemType==="missing_region"?700:400 }}>{row.region_name || "—"}</td>
+                            <td style={{ padding:"4px 10px", color:row.branch_name?"#6b7280":"#b91c1c", fontWeight:!row.branch_name&&problemType==="missing_branch"?700:400 }}>{row.branch_name || "—"}</td>
+                          </>
+                        )}
+                        <td style={{ padding:"4px 10px", textAlign:"right", fontWeight:600 }}>{(row.fact_rows||0).toLocaleString("uk-UA")}</td>
+                        <td style={{ padding:"4px 10px", textAlign:"right", color:(row.sales_amount||0)>0?"#991b1b":"#374151" }}>{fmtAmt(row.sales_amount)}</td>
+                        <td style={{ padding:"4px 10px", display:"flex", gap:4, flexWrap:"nowrap" }}>
+                          {/* Primary: Edit master dept directly (only for missing-attribute problems) */}
+                          {isDeptAttr && row.master_id && (
+                            <button
+                              onClick={() => setEditingRow(row)}
+                              title="Відкрити картку master-підрозділу і заповнити відсутні поля"
+                              style={{ padding:"2px 8px", fontSize:10, border:"1px solid #6ee7b7",
+                                       borderRadius:3, background:"#d1fae5", color:"#065f46",
+                                       cursor:"pointer", whiteSpace:"nowrap", fontWeight:600 }}>
+                              ✎ Редагувати
+                            </button>
+                          )}
+                          {/* Brand: open inline mapping modal */}
+                          {isBrand && (
+                            <button
+                              onClick={() => setMappingRow({
+                                brand_uid:    row.source_item_id,
+                                brand_name:   row.source_item_name,
+                                rows_count:   row.fact_rows,
+                                sales_vat_sum:row.sales_amount,
+                                source_id:    row.source_id,
+                              })}
+                              style={{ padding:"2px 8px", fontSize:10, border:"1px solid #6ee7b7",
+                                       borderRadius:3, background:"#d1fae5", color:"#065f46",
+                                       cursor:"pointer", whiteSpace:"nowrap", fontWeight:600 }}>
+                              + Прив'язати
+                            </button>
+                          )}
+                          {/* Non-brand, non-dept-attr: open mapping/dictionary page */}
+                          {!isBrand && setActivePage && cfg.nav && !isDeptAttr && (
+                            <button
+                              onClick={() => { onClose(); setActivePage(cfg.nav, {}); }}
+                              style={{ padding:"2px 8px", fontSize:10, border:"1px solid #bfdbfe",
+                                       borderRadius:3, background:"#eff6ff", color:"#1e40af",
+                                       cursor:"pointer", whiteSpace:"nowrap" }}>
+                              Відп. підрозділів
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Pagination footer */}
+        {data && data.total > PAGE_SIZE && (
+          <div style={{ padding:"8px 20px", borderTop:"1px solid #e5e7eb", display:"flex", alignItems:"center", gap:8, justifyContent:"center" }}>
+            <button disabled={page<=1} onClick={() => { const p=page-1; setPage(p); load(p, search); }}
+              style={{ padding:"3px 10px", border:"1px solid #e2e8f0", borderRadius:4, background:"#fff", cursor:page<=1?"default":"pointer", fontSize:12 }}>← Назад</button>
+            <span style={{ fontSize:12, color:"#6b7280" }}>
+              {page} / {Math.ceil(data.total / PAGE_SIZE)} ({data.total} рядків)
+            </span>
+            <button disabled={page>=Math.ceil(data.total/PAGE_SIZE)} onClick={() => { const p=page+1; setPage(p); load(p, search); }}
+              style={{ padding:"3px 10px", border:"1px solid #e2e8f0", borderRadius:4, background:"#fff", cursor:"pointer", fontSize:12 }}>Далі →</button>
+          </div>
+        )}
+      </div>
+
+      {/* Dept edit modal opened from this problem modal */}
+      {editingRow && (
+        <DepartmentEditModal
+          departmentId={editingRow.master_id}
+          initialData={{
+            department_name:        editingRow.master_name,
+            holding_name:           editingRow.holding_name,
+            organization_name:      editingRow.organization_name,
+            region_name:            editingRow.region_name,
+            branch_name:            editingRow.branch_name,
+            parent_department_id:   editingRow.parent_department_id,
+            parent_department_name: editingRow.parent_department_name,
+            is_active:              editingRow.is_active,
+          }}
+          onClose={() => setEditingRow(null)}
+          onSaved={() => {
+            setEditingRow(null);
+            load(page, search);
+            if (onRefreshReadiness) onRefreshReadiness();
+          }}
+        />
+      )}
+
+      {/* Inline brand mapping modal opened from this problem modal */}
+      {mappingRow && (
+        <QuickMapBrandModal
+          row={mappingRow}
+          beforeCoverage={null}
+          onClose={() => setMappingRow(null)}
+          onMapped={() => {
+            setMappingRow(null);
+            // Refresh the problems list so mapped row disappears
+            load(page, search);
+            // Refresh readiness stats (coverage %, planning ready %)
+            if (onRefreshReadiness) onRefreshReadiness();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 
 // ── AddEffectForm — form for adding a new effect (NOT a table row) ────────────
 function AddEffectForm({ onAdd }) {

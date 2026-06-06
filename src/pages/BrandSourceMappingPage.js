@@ -21,6 +21,8 @@ import {
   restoreFromArchive,
   getSimilarBrands,
   bulkAutoBind,
+  getBrandConflicts,
+  bulkRemapBrands,
 } from "../api/brandSourceMappingApi";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -1133,6 +1135,8 @@ export default function BrandSourceMappingPage() {
   const [searchInput,    setSearchInput]   = useState("");
   const [page,           setPage]          = useState(1);
   const PAGE_SIZE = 100;
+  const [showBrandConflicts, setShowBrandConflicts] = useState(false);
+  const [conflictCount,      setConflictCount]      = useState(null);
 
   // ── Load ───────────────────────────────────────────────────────────────────
 
@@ -1166,6 +1170,9 @@ export default function BrandSourceMappingPage() {
 
   useEffect(() => {
     getMasterBrands().then(setMasters).catch(() => {});
+    getBrandConflicts({ page: 1, page_size: 1 })
+      .then(r => setConflictCount(r.conflict_count_all))
+      .catch(() => {});
   }, []);
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -1699,6 +1706,17 @@ export default function BrandSourceMappingPage() {
           </span>
         )}
 
+        {/* Brand conflicts */}
+        <button
+          onClick={() => setShowBrandConflicts(true)}
+          title="Бренди з однаковою нормалізованою назвою, прив'язані до різних master-брендів"
+          style={{ padding: "6px 14px", background: conflictCount > 0 ? "#fff7ed" : "#f9fafb",
+                   border: `1px solid ${conflictCount > 0 ? "#fb923c" : "#e2e8f0"}`,
+                   borderRadius: 4, cursor: "pointer", fontSize: 13,
+                   color: conflictCount > 0 ? "#c2410c" : "#6b7280", fontWeight: 600 }}>
+          ⚠ Конфлікти{conflictCount != null ? ` (${conflictCount})` : ""}
+        </button>
+
         {/* Bulk Auto-bind */}
         {(data?.auto_bind_candidates ?? 0) > 0 && (
           <button
@@ -2053,6 +2071,388 @@ export default function BrandSourceMappingPage() {
           onClose={() => setSimilarModalRow(null)}
         />
       )}
+
+      {showBrandConflicts && (
+        <BrandConflictsModal
+          masters={masters}
+          onClose={() => setShowBrandConflicts(false)}
+          onRemapped={() => {
+            load();
+            getMasterBrands().then(setMasters).catch(() => {});
+            getBrandConflicts({ page: 1, page_size: 1 })
+              .then(r => setConflictCount(r.conflict_count_all))
+              .catch(() => {});
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ── BrandMasterCard — master brand card inside conflict group ─────────────────
+
+function BrandMasterCard({ m, isTarget, onSelect, onSelectAll }) {
+  const fmtAmt = (n) => {
+    if (!n) return null;
+    if (n >= 1_000_000) return `₴${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000)     return `₴${Math.round(n / 1_000)}K`;
+    return `₴${Math.round(n)}`;
+  };
+  return (
+    <div style={{ border: `2px solid ${isTarget ? "#2563eb" : "#fca5a5"}`,
+                  borderRadius: 8, padding: "10px 12px", minWidth: 220, maxWidth: 280,
+                  background: isTarget ? "#eff6ff" : "#fef2f2",
+                  display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ fontWeight: 700, fontSize: 12, color: isTarget ? "#1e40af" : "#991b1b",
+                    lineHeight: 1.3 }}>{m.master_name}</div>
+      <div style={{ fontSize: 10, fontFamily: "monospace", color: "#6b7280" }}>ID: {m.master_id}</div>
+      {m.brand_uid && (
+        <div style={{ fontSize: 10, fontFamily: "monospace", color: "#64748b",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+             title={m.brand_uid}>UID: {m.brand_uid}</div>
+      )}
+      {m.brand_group && <div style={{ fontSize: 10, color: "#374151" }}>Група: {m.brand_group}</div>}
+      {m.normalized_name && m.normalized_name !== m.master_name && (
+        <div style={{ fontSize: 9, color: "#94a3b8" }}>Норм.: {m.normalized_name}</div>
+      )}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+        <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3,
+                       background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0" }}>
+          {m.rows_count} рядків
+        </span>
+        {m.fact_rows > 0 && (
+          <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3,
+                         background: "#fef9c3", color: "#713f12", border: "1px solid #fde047" }}>
+            {m.fact_rows} fact
+          </span>
+        )}
+        {m.sales_amount > 0 && (
+          <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3,
+                         background: "#dcfce7", color: "#166534", border: "1px solid #6ee7b7",
+                         fontWeight: 600 }}>
+            {fmtAmt(m.sales_amount)}
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+        <button onClick={() => onSelect(m.master_id)}
+          style={{ flex: 1, fontSize: 10, padding: "3px 6px", borderRadius: 4, cursor: "pointer",
+                   border: `1px solid ${isTarget ? "#2563eb" : "#fca5a5"}`,
+                   background: isTarget ? "#2563eb" : "#fff",
+                   color: isTarget ? "#fff" : "#991b1b", fontWeight: isTarget ? 700 : 400 }}>
+          {isTarget ? "✓ Обрано" : "Вибрати цей master"}
+        </button>
+        <button onClick={() => onSelectAll(m.master_id)}
+          style={{ fontSize: 10, padding: "3px 6px", borderRadius: 4, cursor: "pointer",
+                   border: "1px solid #e2e8f0", background: "#f8fafc", color: "#64748b" }}
+          title="Позначити всі рядки цього master">☑ всі</button>
+      </div>
+    </div>
+  );
+}
+
+
+// ── BrandConflictsModal ───────────────────────────────────────────────────────
+
+function BrandConflictsModal({ masters, onClose, onRemapped }) {
+  const [data,          setData]          = useState(null);
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState(null);
+  const [page,          setPage]          = useState(1);
+  const [expanded,      setExpanded]      = useState({});
+  const [filterSrc,     setFilterSrc]     = useState("");
+  const [search,        setSearch]        = useState("");
+  const [remapTarget,   setRemapTarget]   = useState({});
+  const [remapSelected, setRemapSelected] = useState({});
+  const [preview,       setPreview]       = useState(null);
+  const [remapping,     setRemapping]     = useState(false);
+  const [remapResult,   setRemapResult]   = useState(null);
+
+  const PAGE_SIZE = 20;
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const params = { page, page_size: PAGE_SIZE };
+      if (filterSrc) params.source_id = filterSrc;
+      if (search)    params.search    = search;
+      const res = await getBrandConflicts(params);
+      setData(res);
+    } catch { setError("Помилка завантаження конфліктів"); }
+    finally { setLoading(false); }
+  }, [page, filterSrc, search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const fmtAmt = (n) => {
+    if (!n) return "—";
+    if (n >= 1_000_000) return `₴${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000)     return `₴${Math.round(n / 1_000)}K`;
+    return `₴${Math.round(n)}`;
+  };
+
+  const toggleExpand = (name) => setExpanded(p => ({ ...p, [name]: !p[name] }));
+
+  const toggleRowSelect = (normName, key) => {
+    setRemapSelected(p => {
+      const prev = new Set(p[normName] || []);
+      prev.has(key) ? prev.delete(key) : prev.add(key);
+      return { ...p, [normName]: prev };
+    });
+  };
+
+  const selectAllInGroup = (g, master_id) => {
+    const keys = g.source_rows
+      .filter(r => r.master_id === master_id)
+      .map(r => `${r.source_id}__${r.source_brand_id}`);
+    setRemapSelected(p => ({ ...p, [g.norm_name]: new Set([...(p[g.norm_name] || []), ...keys]) }));
+  };
+
+  const handlePreview = async (g) => {
+    const selected = remapSelected[g.norm_name];
+    const target   = remapTarget[g.norm_name];
+    if (!target) { setError("Оберіть target master"); return; }
+    const items = g.source_rows
+      .filter(r => !selected?.size || selected.has(`${r.source_id}__${r.source_brand_id}`))
+      .map(r => ({ source_id: r.source_id, source_brand_id: r.source_brand_id }));
+    try {
+      const res = await bulkRemapBrands({ items, new_master_id: target, dry_run: true });
+      const targetMaster = masters.find(m => m.id === target);
+      setPreview({ norm_name: g.norm_name, targetMaster, group: g, ...res });
+    } catch { setError("Помилка preview"); }
+  };
+
+  const handleConfirm = async () => {
+    if (!preview) return;
+    setRemapping(true);
+    try {
+      const g        = data?.groups?.find(x => x.norm_name === preview.norm_name);
+      const selected = remapSelected[preview.norm_name];
+      const target   = remapTarget[preview.norm_name];
+      const items    = (g?.source_rows || [])
+        .filter(r => !selected?.size || selected.has(`${r.source_id}__${r.source_brand_id}`))
+        .map(r => ({ source_id: r.source_id, source_brand_id: r.source_brand_id }));
+      await bulkRemapBrands({ items, new_master_id: target, dry_run: false });
+      setPreview(null);
+      setRemapResult({ norm_name: preview.norm_name });
+      onRemapped?.();
+      load();
+    } catch { setError("Помилка переприв'язки"); }
+    finally { setRemapping(false); }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 4000,
+                  display: "flex", alignItems: "flex-start", justifyContent: "center",
+                  padding: "30px 16px", overflowY: "auto" }}>
+      <div style={{ background: "#fff", borderRadius: 10, width: "min(1000px,96vw)",
+                    boxShadow: "0 12px 40px rgba(0,0,0,.3)", display: "flex", flexDirection: "column" }}>
+
+        {/* Header */}
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid #e5e7eb",
+                      display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>⚠ Конфлікти брендів</div>
+            {data && (
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                {data.total_groups} груп · всього конфліктів: {data.conflict_count_all}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose}
+            style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>✕</button>
+        </div>
+
+        {/* Filters */}
+        <div style={{ padding: "8px 20px", borderBottom: "1px solid #f1f5f9",
+                      display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input value={filterSrc} onChange={e => { setFilterSrc(e.target.value); setPage(1); }}
+            placeholder="Source ID…"
+            style={{ width: 110, padding: "4px 8px", border: "1px solid #d1d5db",
+                     borderRadius: 4, fontSize: 12 }}/>
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Пошук по назві…"
+            style={{ width: 220, padding: "4px 8px", border: "1px solid #d1d5db",
+                     borderRadius: 4, fontSize: 12 }}/>
+          <button onClick={load}
+            style={{ padding: "4px 12px", border: "1px solid #d1d5db", borderRadius: 4,
+                     background: "#f9fafb", cursor: "pointer", fontSize: 11 }}>↻ Оновити</button>
+          {data?.total_groups === 0 && !loading && (
+            <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>✓ Конфліктів немає</span>
+          )}
+        </div>
+
+        {/* Groups */}
+        <div style={{ flex: 1, overflowY: "auto", maxHeight: "65vh", padding: "8px 0" }}>
+          {loading && <div style={{ padding: 32, textAlign: "center", color: "#9ca3af" }}>Завантаження…</div>}
+          {error   && <div style={{ padding: 12, color: "#dc2626", fontSize: 12 }}>⚠ {error}</div>}
+
+          {!loading && data?.groups?.map(g => {
+            const isExp  = !!expanded[g.norm_name];
+            const target = remapTarget[g.norm_name];
+            const sel    = remapSelected[g.norm_name];
+
+            return (
+              <div key={g.norm_name} style={{ borderBottom: "1px solid #f3f4f6", padding: "0 16px" }}>
+                {/* Group header */}
+                <div onClick={() => toggleExpand(g.norm_name)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0",
+                           cursor: "pointer", userSelect: "none" }}>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>{isExp ? "▾" : "▸"}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{g.norm_name}</span>
+                  <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 10,
+                                 background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" }}>
+                    {g.distinct_masters} master
+                  </span>
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>{g.rows_count} джерел</span>
+                  {g.sales_amount > 0 && (
+                    <span style={{ fontSize: 11, color: "#166534", fontWeight: 600, marginLeft: "auto" }}>
+                      {fmtAmt(g.sales_amount)}
+                    </span>
+                  )}
+                </div>
+
+                {isExp && (
+                  <div style={{ paddingBottom: 16 }}>
+                    {/* Master cards */}
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                      {g.master_info.map(m => (
+                        <BrandMasterCard
+                          key={m.master_id}
+                          m={m}
+                          isTarget={target === m.master_id}
+                          onSelect={id => setRemapTarget(p => ({ ...p, [g.norm_name]: id }))}
+                          onSelectAll={id => selectAllInGroup(g, id)}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Target selector (full master list) */}
+                    <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, color: "#374151", fontWeight: 600 }}>Target master:</span>
+                      <select
+                        value={target ?? ""}
+                        onChange={e => setRemapTarget(p => ({
+                          ...p, [g.norm_name]: e.target.value ? Number(e.target.value) : null
+                        }))}
+                        style={{ padding: "4px 8px", border: "1px solid #d1d5db",
+                                 borderRadius: 4, fontSize: 12 }}>
+                        <option value="">— оберіть master —</option>
+                        {masters.map(m => (
+                          <option key={m.id} value={m.id}>{m.brand_name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Source rows */}
+                    <div style={{ overflowX: "auto", maxHeight: 260, overflowY: "auto",
+                                  border: "1px solid #e5e7eb", borderRadius: 6, marginBottom: 10 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ background: "#f8fafc", position: "sticky", top: 0 }}>
+                            <th style={{ padding: "4px 8px", textAlign: "center", borderBottom: "1px solid #e5e7eb", width: 28 }}>☑</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>Source Brand ID</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>Назва</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>Поточний master</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>Статус</th>
+                            <th style={{ padding: "4px 8px", textAlign: "right", borderBottom: "1px solid #e5e7eb" }}>Src</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.source_rows.map(r => {
+                            const key   = `${r.source_id}__${r.source_brand_id}`;
+                            const isChk = !sel?.size || sel.has(key);
+                            return (
+                              <tr key={key}
+                                style={{ borderBottom: "1px solid #f3f4f6",
+                                         background: isChk ? "#f0fdf4" : "transparent" }}>
+                                <td style={{ padding: "3px 8px", textAlign: "center" }}>
+                                  <input type="checkbox" checked={isChk}
+                                    onChange={() => toggleRowSelect(g.norm_name, key)}/>
+                                </td>
+                                <td style={{ padding: "3px 8px", fontFamily: "monospace", fontSize: 10,
+                                             maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis",
+                                             whiteSpace: "nowrap" }} title={r.source_brand_id}>
+                                  {r.source_brand_id}
+                                </td>
+                                <td style={{ padding: "3px 8px", maxWidth: 160, overflow: "hidden",
+                                             textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                    title={r.source_brand_name}>{r.source_brand_name}</td>
+                                <td style={{ padding: "3px 8px", color: "#1e40af" }}>{r.master_name}</td>
+                                <td style={{ padding: "3px 8px", color: "#6b7280" }}>{r.mapping_status}</td>
+                                <td style={{ padding: "3px 8px", textAlign: "right", color: "#9ca3af" }}>{r.source_id}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Preview / confirm / result */}
+                    {preview?.norm_name === g.norm_name ? (
+                      <div style={{ background: "#fffbeb", border: "1px solid #fcd34d",
+                                    borderRadius: 6, padding: "10px 14px", marginBottom: 8 }}>
+                        <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
+                          Preview переприв'язки → {preview.new_master_name}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#374151", marginBottom: 8 }}>
+                          Буде переприв'язано: <strong>{preview.rows_affected}</strong> source записів
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={handleConfirm} disabled={remapping}
+                            style={{ padding: "5px 14px", background: "#2563eb", color: "#fff",
+                                     border: "none", borderRadius: 4, cursor: "pointer",
+                                     fontSize: 12, fontWeight: 600 }}>
+                            {remapping ? "Виконання…" : "✓ Підтвердити переприв'язку"}
+                          </button>
+                          <button onClick={() => setPreview(null)}
+                            style={{ padding: "5px 12px", background: "#f1f5f9",
+                                     border: "1px solid #e2e8f0", borderRadius: 4,
+                                     cursor: "pointer", fontSize: 12 }}>Скасувати</button>
+                        </div>
+                      </div>
+                    ) : remapResult?.norm_name === g.norm_name ? (
+                      <div style={{ fontSize: 12, color: "#16a34a", fontWeight: 600, padding: "6px 0" }}>
+                        ✓ Переприв'язку виконано
+                      </div>
+                    ) : (
+                      <button onClick={() => handlePreview(g)} disabled={!target}
+                        style={{ padding: "5px 14px", background: target ? "#eff6ff" : "#f9fafb",
+                                 border: `1px solid ${target ? "#3b82f6" : "#e2e8f0"}`,
+                                 borderRadius: 4, cursor: target ? "pointer" : "not-allowed",
+                                 fontSize: 12, color: target ? "#1e40af" : "#9ca3af", fontWeight: 600 }}>
+                        Preview переприв'язки
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Pagination */}
+        {data && data.total_groups > PAGE_SIZE && (
+          <div style={{ padding: "8px 20px", borderTop: "1px solid #e5e7eb",
+                        display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+              style={{ padding: "3px 10px", border: "1px solid #e2e8f0", borderRadius: 4,
+                       background: "#fff", cursor: page <= 1 ? "default" : "pointer", fontSize: 12 }}>
+              ← Назад
+            </button>
+            <span style={{ fontSize: 12, color: "#6b7280" }}>
+              {page} / {Math.ceil(data.total_groups / PAGE_SIZE)} ({data.total_groups} груп)
+            </span>
+            <button disabled={page >= Math.ceil(data.total_groups / PAGE_SIZE)}
+              onClick={() => setPage(p => p + 1)}
+              style={{ padding: "3px 10px", border: "1px solid #e2e8f0", borderRadius: 4,
+                       background: "#fff", cursor: "pointer", fontSize: 12 }}>
+              Далі →
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

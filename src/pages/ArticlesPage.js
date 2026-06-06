@@ -3,7 +3,7 @@ import { usePagePermission } from "../hooks/usePagePermission";
 import Modal from "../components/ui/Modal";
 import SearchableSelect from "../components/ui/SearchableSelect";
 import LevelCombobox from "../components/ui/LevelCombobox";
-import { getArticles, createArticle, updateArticle, mergePreview, mergeArticles, exportCsv } from "../api/articlesApi";
+import { getArticles, createArticle, updateArticle, mergePreview, mergeArticles, exportCsv, bulkFillPreview, bulkFill } from "../api/articlesApi";
 import { getPnlStructures } from "../api/pnlStructureApi";
 import { getLevel2, createLevel2, getLevel1, createLevel1 } from "../api/pnlLevelsApi";
 
@@ -176,10 +176,14 @@ function ArticlesPage({ setActivePage }) {
   const [form,          setForm]          = useState(emptyForm);
 
   // ── Selection + merge ───────────────────────────────────────────────────────
-  const [selectedIds,    setSelectedIds]    = useState(new Set());
-  const [showMergeModal, setShowMergeModal] = useState(false);
-  const [hideMerged,     setHideMerged]     = useState(true);
-  const [mergeSuccess,   setMergeSuccess]   = useState(null);
+  const [selectedIds,      setSelectedIds]      = useState(new Set());
+  const [showMergeModal,   setShowMergeModal]   = useState(false);
+  const [hideMerged,       setHideMerged]       = useState(true);
+  const [mergeSuccess,     setMergeSuccess]     = useState(null);
+
+  // ── Bulk fill ────────────────────────────────────────────────────────────────
+  const [showBulkFill,   setShowBulkFill]   = useState(false);
+  const [bulkFillBanner, setBulkFillBanner] = useState(null);
 
   // ── CSV export ───────────────────────────────────────────────────────────
   const [exporting,    setExporting]    = useState(false);
@@ -210,6 +214,30 @@ function ArticlesPage({ setActivePage }) {
       filterPnlId, filterUid, filterElement, filterCompany,
       filterL1Olap, filterL2Olap, onlyWithUid, onlyWithoutUid, onlyWithoutElement,
       onlyDupName, onlyDupUid, hideMerged]);
+
+  const buildBulkFilters = useCallback(() => {
+    const f = {};
+    if (search)             f.search               = search;
+    if (filterType)         f.article_type         = filterType;
+    if (filterActive)       f.is_active            = filterActive;
+    if (filterLevel1)       f.level1               = filterLevel1;
+    if (filterLevel2)       f.level2               = filterLevel2;
+    if (filterPnlId)        f.pnl_id               = Number(filterPnlId);
+    if (filterUid)          f.uid_expense_article  = filterUid;
+    if (filterElement)      f.expense_element      = filterElement;
+    if (filterCompany)      f.expense_company      = filterCompany;
+    if (filterL1Olap)       f.level1_olap          = filterL1Olap;
+    if (filterL2Olap)       f.level2_olap          = filterL2Olap;
+    if (onlyWithUid)        f.only_with_uid        = true;
+    if (onlyWithoutUid)     f.only_without_uid     = true;
+    if (onlyWithoutElement) f.only_without_element = true;
+    if (onlyDupName)        f.only_dup_name        = true;
+    if (onlyDupUid)         f.only_dup_uid         = true;
+    f.hide_merged = hideMerged;
+    return f;
+  }, [search, filterType, filterActive, filterLevel1, filterLevel2, filterPnlId,
+      filterUid, filterElement, filterCompany, filterL1Olap, filterL2Olap,
+      onlyWithUid, onlyWithoutUid, onlyWithoutElement, onlyDupName, onlyDupUid, hideMerged]);
 
   const loadData = useCallback(async () => {
     setLoading(true); setLoadError(null);
@@ -488,6 +516,24 @@ function ArticlesPage({ setActivePage }) {
                        borderRadius: 5, background: "#f0f9ff", cursor: "pointer", color: "#0369a1" }}>
               ⚙ Таблиця
             </button>
+            {canEdit && (() => {
+              const hasScope = selectedIds.size > 0 || Object.keys(activeFilters).length > 0;
+              return (
+                <button
+                  onClick={() => setShowBulkFill(true)}
+                  disabled={!hasScope}
+                  title={!hasScope ? "Виберіть рядки або застосуйте фільтри" : "Масове заповнення полів"}
+                  style={{ padding: "5px 11px", fontSize: 12, fontWeight: 500,
+                           border: "1px solid #d8b4fe", borderRadius: 5,
+                           background: hasScope ? "#faf5ff" : "#f9fafb",
+                           cursor: hasScope ? "pointer" : "not-allowed",
+                           color: hasScope ? "#6d28d9" : "#9ca3af",
+                           opacity: hasScope ? 1 : 0.6 }}>
+                  ⬦ Заповнити
+                  {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                </button>
+              );
+            })()}
             {canEdit && selectedIds.size >= 2 && (
               <button onClick={() => setShowMergeModal(true)}
                 style={{ padding: "5px 13px", fontSize: 12, fontWeight: 600,
@@ -731,6 +777,15 @@ function ArticlesPage({ setActivePage }) {
                         color: "#065f46", display: "flex", justifyContent: "space-between" }}>
             <span>✅ {mergeSuccess}</span>
             <button onClick={() => setMergeSuccess(null)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 }}>✕</button>
+          </div>
+        )}
+        {bulkFillBanner && (
+          <div style={{ margin: "8px 20px", padding: "8px 14px", background: "#d1fae5",
+                        border: "1px solid #6ee7b7", borderRadius: 6, fontSize: 13,
+                        color: "#065f46", display: "flex", justifyContent: "space-between" }}>
+            <span>✅ {bulkFillBanner}</span>
+            <button onClick={() => setBulkFillBanner(null)}
               style={{ background: "none", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 }}>✕</button>
           </div>
         )}
@@ -1024,6 +1079,23 @@ function ArticlesPage({ setActivePage }) {
         </Modal>
       )}
 
+      {showBulkFill && (
+        <BulkFillModal
+          selectedIds={selectedIds}
+          hasActiveFilters={Object.keys(activeFilters).length > 0}
+          getFilters={buildBulkFilters}
+          pnlStructures={pnlStructures}
+          level2Options={level2Options}
+          onClose={() => setShowBulkFill(false)}
+          onSuccess={(count) => {
+            setShowBulkFill(false);
+            setSelectedIds(new Set());
+            setBulkFillBanner(`Оновлено ${count} статей`);
+            loadData();
+          }}
+        />
+      )}
+
       {showMergeModal && (
         <MergeArticlesModal
           selectedIds={selectedIds}
@@ -1286,6 +1358,300 @@ function MergeArticlesModal({ selectedIds, allRows, onClose, onMerged }) {
               : preview?.can_merge ? `Об'єднати ${preview.sources?.length} → 1`
               : "Неможливо об'єднати"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── BulkFillModal ─────────────────────────────────────────────────────────────
+
+const BULK_FIELDS = [
+  { key: "pnl_id",              label: "PnL ID",        type: "pnl"  },
+  { key: "article_name",        label: "Назва статті",  type: "text" },
+  { key: "level2",              label: "Level 2",        type: "lv2"  },
+  { key: "level1",              label: "Level 1",        type: "lv1"  },
+  { key: "article_type",        label: "Тип",            type: "type" },
+  { key: "uid_expense_article", label: "UID статті",     type: "text" },
+  { key: "expense_element",     label: "Ел. витрат",     type: "text" },
+  { key: "expense_company",     label: "Компанія",       type: "text" },
+];
+
+const BULK_FIELD_LABELS = Object.fromEntries(BULK_FIELDS.map(f => [f.key, f.label]));
+
+function BulkFillModal({ selectedIds, hasActiveFilters, getFilters, pnlStructures, level2Options, onClose, onSuccess }) {
+  const [checked,  setChecked]  = useState({});
+  const [values,   setValues]   = useState({});
+  const [scope,    setScope]    = useState(selectedIds.size > 0 ? "selected" : "filtered");
+  const [step,     setStep]     = useState("fields");
+  const [preview,  setPreview]  = useState(null);
+  const [updates,  setUpdates]  = useState({});
+  const [lv1Opts,  setLv1Opts]  = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState(null);
+
+  useEffect(() => {
+    if (!checked.level2 || !values.level2) { setLv1Opts([]); return; }
+    const match = level2Options.find(o => o.name.toLowerCase() === (values.level2 || "").toLowerCase());
+    if (match) getLevel1(match.id).then(setLv1Opts).catch(() => setLv1Opts([]));
+    else setLv1Opts([]);
+  }, [values.level2, checked.level2, level2Options]);
+
+  const checkedCount = Object.values(checked).filter(Boolean).length;
+
+  const buildUpdates = () => {
+    const upd = {};
+    for (const f of BULK_FIELDS) {
+      if (!checked[f.key]) continue;
+      upd[f.key] = f.key === "pnl_id"
+        ? (Number(values[f.key]) || null)
+        : (values[f.key] ?? "");
+    }
+    return upd;
+  };
+
+  const handlePreview = async () => {
+    if (!checkedCount) { setError("Оберіть хоча б одне поле"); return; }
+    const upd = buildUpdates();
+    if (!Object.keys(upd).length) { setError("Оберіть хоча б одне поле та вкажіть значення"); return; }
+    setLoading(true); setError(null);
+    try {
+      const res = await bulkFillPreview({
+        article_ids: scope === "selected" ? [...selectedIds] : [],
+        filters:     scope === "filtered" ? getFilters() : {},
+        scope, updates: upd,
+      });
+      setPreview(res); setUpdates(upd); setStep("preview");
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Помилка перевірки");
+    } finally { setLoading(false); }
+  };
+
+  const handleConfirm = async () => {
+    setSaving(true); setError(null);
+    try {
+      const res = await bulkFill({
+        article_ids: scope === "selected" ? [...selectedIds] : [],
+        filters:     scope === "filtered" ? getFilters() : {},
+        scope, updates,
+      });
+      onSuccess(res.updated);
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Помилка збереження");
+    } finally { setSaving(false); }
+  };
+
+  const inputStyle = (disabled) => ({
+    padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 4,
+    fontSize: 12, width: "100%",
+    background: disabled ? "#f9fafb" : "#fff",
+    color:      disabled ? "#9ca3af" : "#111827",
+  });
+
+  const renderInput = (f) => {
+    const val  = values[f.key] ?? "";
+    const dis  = !checked[f.key];
+    const set  = (v) => setValues(p => ({ ...p, [f.key]: v }));
+    switch (f.type) {
+      case "pnl":
+        return (
+          <select value={val} disabled={dis} onChange={e => set(e.target.value)} style={inputStyle(dis)}>
+            <option value="">— оберіть PnL рядок —</option>
+            {pnlStructures.map(p => (
+              <option key={p.id} value={String(p.id)}>{p.id} — {p.pnl_code || "—"} — {p.pnl_name}</option>
+            ))}
+          </select>
+        );
+      case "type":
+        return (
+          <select value={val} disabled={dis} onChange={e => set(e.target.value)} style={inputStyle(dis)}>
+            <option value="">— оберіть тип —</option>
+            <option value="Дохід">Дохід</option>
+            <option value="Витрати">Витрати</option>
+          </select>
+        );
+      case "lv2":
+        return (
+          <select value={val} disabled={dis} onChange={e => set(e.target.value)} style={inputStyle(dis)}>
+            <option value="">— очистити Level 2 —</option>
+            {level2Options.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}
+          </select>
+        );
+      case "lv1":
+        return (
+          <select value={val} disabled={dis || !values.level2} onChange={e => set(e.target.value)} style={inputStyle(dis || !values.level2)}>
+            <option value="">— очистити Level 1 —</option>
+            {lv1Opts.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}
+          </select>
+        );
+      default:
+        return (
+          <input type="text" value={val} disabled={dis}
+            onChange={e => set(e.target.value)}
+            placeholder={dis ? "—" : "нове значення..."}
+            style={inputStyle(dis)}/>
+        );
+    }
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:2000,
+                  display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:"#fff", borderRadius:10, width:"min(680px,96vw)",
+                    maxHeight:"90vh", display:"flex", flexDirection:"column",
+                    boxShadow:"0 8px 32px rgba(0,0,0,.2)" }}>
+
+        {/* Header */}
+        <div style={{ padding:"14px 20px", borderBottom:"1px solid #e5e7eb",
+                      display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontWeight:700, fontSize:15 }}>
+            {step === "fields" ? "Масове заповнення статей PnL" : "Підтвердження оновлення"}
+          </span>
+          <button onClick={onClose}
+            style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"#6b7280" }}>✕</button>
+        </div>
+
+        <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
+          {error && (
+            <div style={{ padding:"8px 12px", background:"#fee2e2", border:"1px solid #fca5a5",
+                          borderRadius:6, fontSize:12, color:"#991b1b", marginBottom:12 }}>{error}</div>
+          )}
+
+          {step === "fields" && (
+            <>
+              {/* Scope selector */}
+              <div style={{ marginBottom:16, padding:"10px 14px", background:"#f8fafc",
+                            borderRadius:7, border:"1px solid #e2e8f0" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>Застосувати до:</div>
+                <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
+                  <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12,
+                                   cursor: selectedIds.size === 0 ? "not-allowed" : "pointer",
+                                   color: selectedIds.size === 0 ? "#9ca3af" : "#111827" }}>
+                    <input type="radio" value="selected" checked={scope === "selected"}
+                      disabled={selectedIds.size === 0}
+                      onChange={() => setScope("selected")}/>
+                    Тільки вибрані рядки ({selectedIds.size})
+                  </label>
+                  <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, cursor:"pointer" }}>
+                    <input type="radio" value="filtered" checked={scope === "filtered"}
+                      onChange={() => setScope("filtered")}/>
+                    Усі за поточними фільтрами
+                  </label>
+                </div>
+                {scope === "filtered" && !hasActiveFilters && (
+                  <div style={{ marginTop:8, padding:"5px 8px", background:"#fef9c3",
+                                border:"1px solid #fcd34d", borderRadius:4, fontSize:11, color:"#92400e" }}>
+                    ⚠ Немає активних фільтрів — будуть оновлені ВСІ статті в довіднику
+                  </div>
+                )}
+              </div>
+
+              {/* Fields */}
+              <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>Поля для заповнення:</div>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead>
+                  <tr style={{ background:"#f8fafc" }}>
+                    <th style={{ padding:"5px 8px", width:32, textAlign:"center" }}></th>
+                    <th style={{ padding:"5px 8px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600, width:140 }}>Поле</th>
+                    <th style={{ padding:"5px 8px", textAlign:"left", fontSize:11, color:"#6b7280", fontWeight:600 }}>Нове значення</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {BULK_FIELDS.map(f => (
+                    <tr key={f.key} style={{ borderTop:"1px solid #f1f5f9" }}>
+                      <td style={{ padding:"6px 8px", textAlign:"center" }}>
+                        <input type="checkbox" checked={!!checked[f.key]}
+                          onChange={e => setChecked(p => ({ ...p, [f.key]: e.target.checked }))}/>
+                      </td>
+                      <td style={{ padding:"6px 8px", fontSize:12,
+                                   fontWeight: checked[f.key] ? 600 : 400,
+                                   color: checked[f.key] ? "#111827" : "#9ca3af" }}>
+                        {f.label}
+                      </td>
+                      <td style={{ padding:"6px 8px" }}>{renderInput(f)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {step === "preview" && preview && (
+            <>
+              <div style={{ padding:"14px 18px", background:"#f0fdf4", border:"1px solid #6ee7b7",
+                            borderRadius:8, marginBottom:14, display:"flex", alignItems:"baseline", gap:10 }}>
+                <span style={{ fontSize:26, fontWeight:800, color:"#065f46" }}>{preview.count}</span>
+                <span style={{ fontSize:13, color:"#065f46" }}>статей буде оновлено</span>
+              </div>
+
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#374151", marginBottom:8 }}>Поля, що будуть змінені:</div>
+                {preview.fields.map(key => {
+                  const val = updates[key];
+                  const displayVal = val === "" || val === null ? "(очистити)" : String(val);
+                  return (
+                    <div key={key} style={{ display:"flex", alignItems:"center", gap:8,
+                                            padding:"5px 0", borderBottom:"1px solid #f1f5f9", fontSize:12 }}>
+                      <span style={{ width:140, color:"#6b7280", flexShrink:0 }}>{BULK_FIELD_LABELS[key] || key}</span>
+                      <span style={{ color:"#111827", fontWeight:600 }}>→ {displayVal}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {preview.warnings?.length > 0 && (
+                <div style={{ padding:"10px 14px", background:"#fffbeb", border:"1px solid #fcd34d",
+                              borderRadius:7, marginBottom:14 }}>
+                  <div style={{ fontWeight:700, fontSize:12, color:"#92400e", marginBottom:4 }}>⚠ Попередження:</div>
+                  {preview.warnings.map((w, i) => (
+                    <div key={i} style={{ fontSize:11, color:"#92400e" }}>• {w}</div>
+                  ))}
+                </div>
+              )}
+
+              {preview.count === 0 && (
+                <div style={{ padding:"8px 12px", background:"#f3f4f6", borderRadius:6,
+                              fontSize:12, color:"#6b7280" }}>
+                  За поточним вибором немає статей для оновлення.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:"10px 20px", borderTop:"1px solid #e5e7eb",
+                      display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}>
+          <button
+            onClick={step === "preview"
+              ? () => { setStep("fields"); setPreview(null); setUpdates({}); setError(null); }
+              : onClose}
+            style={{ padding:"6px 18px", border:"1px solid #d1d5db", borderRadius:6,
+                     background:"#fff", cursor:"pointer", fontSize:12 }}>
+            {step === "preview" ? "← Назад" : "Скасувати"}
+          </button>
+
+          {step === "fields" && (
+            <button onClick={handlePreview} disabled={loading || !checkedCount}
+              style={{ padding:"6px 20px", border:"none", borderRadius:6, fontSize:12, fontWeight:700,
+                       cursor: loading || !checkedCount ? "not-allowed" : "pointer",
+                       background: loading || !checkedCount ? "#e5e7eb" : "#7c3aed",
+                       color:      loading || !checkedCount ? "#9ca3af" : "#fff" }}>
+              {loading ? "Перевірка…" : "Попередній перегляд →"}
+            </button>
+          )}
+
+          {step === "preview" && (
+            <button onClick={handleConfirm} disabled={saving || preview?.count === 0}
+              style={{ padding:"6px 20px", border:"none", borderRadius:6, fontSize:12, fontWeight:700,
+                       cursor: saving || preview?.count === 0 ? "not-allowed" : "pointer",
+                       background: saving || preview?.count === 0 ? "#e5e7eb" : "#059669",
+                       color:      saving || preview?.count === 0 ? "#9ca3af" : "#fff" }}>
+              {saving ? "Оновлення…" : "✓ Підтвердити оновлення"}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -43,3 +43,16 @@ export async function deactivateDepartment(departmentId) {
   const res = await axios.delete(`${API_URL}/${departmentId}`);
   return res.data;
 }
+
+export async function bulkFillDepartments(departmentIds, updates) {
+  const res = await axios.post(`${API_URL}/bulk-fill`, { department_ids: departmentIds, updates });
+  return res.data;
+}
+
+export async function bulkUpdateFilteredDepartments(departmentIds, updates) {
+  const res = await axios.post(`${API_URL}/bulk-update-filtered`, {
+    department_ids: departmentIds,
+    updates,
+  });
+  return res.data;
+}

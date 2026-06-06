@@ -19,7 +19,7 @@ import {
   confirmUUIDBindings,
   getArticleCoverage,
 } from "../api/articleSourceMappingApi";
-import { getArticles, createArticle, updateArticle } from "../api/articlesApi";
+import { getArticles, getArticleById, createArticle, updateArticle } from "../api/articlesApi";
 import BulkFillModal from "./BulkFillModal";
 import BulkCreateModal from "./BulkCreateModal";
 import { getPnlStructures } from "../api/pnlStructureApi";
@@ -316,9 +316,8 @@ function EditArticleModal({ articleId, pnlStructures, onSaved, onClose }) {
   const [saving,       setSaving]       = useState(false);
 
   useEffect(() => {
-    Promise.all([getArticles(), getLevel2()])
-      .then(([articles, lv2]) => {
-        const art = articles.find((a) => a.article_id === articleId);
+    Promise.all([getArticleById(articleId), getLevel2()])
+      .then(([art, lv2]) => {
         if (art) {
           setForm({
             article_id:          art.article_id          || "",

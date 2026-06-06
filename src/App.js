@@ -33,6 +33,7 @@ import ArticleSourceMappingPage from "./pages/ArticleSourceMappingPage";
 import BrandSourceMappingPage from "./pages/BrandSourceMappingPage";
 import DepartmentSourceMappingPage from "./pages/DepartmentSourceMappingPage";
 import PlanningPage from "./pages/PlanningPage";
+import DiagnosticsPage from "./pages/DiagnosticsPage";
 
 function AppContent() {
   const { currentUser, loading, logout, forceChangePassword } = useAuth();
@@ -113,6 +114,7 @@ function AppContent() {
       case "brandSourceMapping":      return <BrandSourceMappingPage />;
       case "departmentSourceMapping": return <DepartmentSourceMappingPage initialSourceId={deptMappingSourceId} initialDeptUid={deptMappingDeptUid} setActivePage={navigateTo} />;
       case "planningSales":           return <PlanningPage setActivePage={navigateTo} />;
+      case "diagnostics":             return <DiagnosticsPage />;
 
       default:
         return (
@@ -151,6 +153,7 @@ function AppContent() {
       case "brandSourceMapping":      return "Відповідність брендів";
       case "departmentSourceMapping": return "Відповідність підрозділів";
       case "planningSales":           return "Планування продажів";
+      case "diagnostics":             return "Діагностика";
       default:               return "Система планування";
     }
   };
@@ -187,6 +190,22 @@ function AppContent() {
 
         {renderPage()}
       </main>
+
+      {/* Dev badge — bottom-right corner, click to open diagnostics */}
+      <div
+        onClick={() => navigateTo("diagnostics")}
+        title="Натисніть для діагностики середовища"
+        style={{
+          position: "fixed", bottom: 8, right: 8, zIndex: 9999,
+          background: process.env.NODE_ENV === "development" ? "#1e40af" : "#374151",
+          color: "#fff", fontSize: 10, padding: "3px 7px", borderRadius: 4,
+          cursor: "pointer", opacity: 0.75, fontFamily: "monospace",
+          userSelect: "none",
+        }}
+      >
+        {process.env.NODE_ENV === "development" ? "DEV" : "PROD"}
+        {" · "}API:{window.location.hostname}
+      </div>
     </div>
   );
 }

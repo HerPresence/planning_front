@@ -728,7 +728,9 @@ function SalesStagingTable({ rows, onRowClick, density }) {
           {[
             "Статус","Маппінг","Період",
             "Dept UID","Підрозділ","Master підрозділ",
-            "PG ID","PG UID","НГ (назва)","Master НГ",
+            "PG ID","PG UID","НГ (назва)",
+            "SKU UID","SKU назва","Source SKU UID",
+            "Master НГ",
             "з ПДВ","Роздріб","Акциз","Дал","Кг","Помилка",
           ].map(h => <th key={h}>{h}</th>)}
         </tr>
@@ -758,6 +760,12 @@ function SalesStagingTable({ rows, onRowClick, density }) {
                 title={r.product_group_name}>
               {r.product_group_name || <span style={{ color: "var(--text-muted)" }}>—</span>}
             </td>
+            <td><UIDCell value={r.sku_uid} maxWidth={130} /></td>
+            <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={r.sku_name || ""}>
+              {r.sku_name || <span style={{ color: "var(--text-muted)" }}>—</span>}
+            </td>
+            <td><UIDCell value={r.source_sku_uid} maxWidth={130} /></td>
             <td style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {r.master_brand_name
                 ? <span style={{ color: "var(--info)", fontWeight: 500 }}>{r.master_brand_name}</span>
